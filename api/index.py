@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 import os
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import db_router
+from routers import db_router
 load_dotenv()
 
 app = FastAPI(
@@ -25,6 +25,8 @@ app.include_router(db_router, prefix="/api/v1/db")
 @app.get("/api/py/helloFastApi")
 def hello_fast_api():
     return {"message": "Hello from FastAPI"}
+
+# uvicorn odds_arbitrage_finder:app --reload
 
 
 if __name__ == "__main__":

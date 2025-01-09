@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from dotenv import load_dotenv
 import os
 from supabase import create_client, Client
-from ..findBets import OddsArbitrageFinder
+from src.findBets import OddsArbitrageFinder
 from datetime import datetime, timezone
 import pandas as pd
 import json
@@ -20,6 +20,7 @@ router = APIRouter(tags=["db"])
 async def read_root():
     return {"Hello": "World"}
 
+
 @router.get("/arbitrage")
 async def update_db():
     api_key = os.environ.get("ODDS_API_KEY")
@@ -30,6 +31,7 @@ async def update_db():
     arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
 
     return arbitrage_json
+
 
 @router.get("/plus_ev")
 async def update_db():
@@ -42,6 +44,7 @@ async def update_db():
     plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
 
     return plus_ev_json
+
 
 @router.get("/items/")
 async def read_items(q: str = Query(None)):
