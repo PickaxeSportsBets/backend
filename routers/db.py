@@ -18,7 +18,8 @@ router = APIRouter(tags=["db"])
 
 @router.get("/evBets")
 async def get_ev_bets():
-    response = supabase.table("plus_ev").select("*").execute()
+    response = supabase.table("plus_ev").select(
+        "*").order('ev_percentage', desc=True).execute()
     data = response.data
     return data
 

@@ -1,0 +1,70 @@
+{
+  "Houston Texans_2.5": {
+    "odds": {
+      "fanduel": {
+        "american": -102,
+        "decimal": 1.98,
+        "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.471628711&selectionId=179823"
+      },
+      "pinnacle": { "american": 107, "decimal": 2.07, "link": null }
+    }
+  },
+  "Los Angeles Chargers_-2.5": {
+    "odds": {
+      "fanduel": {
+        "american": -120,
+        "decimal": 1.83,
+        "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.471628711&selectionId=12481798"
+      },
+      "pinnacle": { "american": -120, "decimal": 1.83, "link": null }
+    }
+  },
+  "Houston Texans_3.0": {
+    "odds": {
+      "draftkings": {
+        "american": -115,
+        "decimal": 1.87,
+        "link": "https://sportsbook.draftkings.com/event/31626160?outcomes=0HC78176902P300_1"
+      },
+      "betrivers": {
+        "american": -115,
+        "decimal": 1.87,
+        "link": "https://{state}.betrivers.com/?page=sportsbook#event/1022507677?coupon={pickType}|3607152752|{wagerAmount}"
+      },
+      "caesars": {
+        "american": -115,
+        "decimal": 1.87,
+        "link": "https://sportsbook.caesars.com/us/{state}/bet/betslip?selectionIds=877bb388-0ee1-3306-ba59-89b933e79c1a"
+      },
+      "betmgm": {
+        "american": -115,
+        "decimal": 1.87,
+        "link": "https://sports.{state}.betmgm.com/en/sports?options=16863523-1226711605--794552529&type=Single"
+      }
+    }
+  },
+  "Los Angeles Chargers_-3.0": {
+    "odds": {
+      "draftkings": {
+        "american": -105,
+        "decimal": 1.95,
+        "link": "https://sportsbook.draftkings.com/event/31626160?outcomes=0HC78176902N300_3"
+      },
+      "betrivers": {
+        "american": -106,
+        "decimal": 1.94,
+        "link": "https://{state}.betrivers.com/?page=sportsbook#event/1022507677?coupon={pickType}|3607152754|{wagerAmount}"
+      },
+      "caesars": {
+        "american": -105,
+        "decimal": 1.95,
+        "link": "https://sportsbook.caesars.com/us/{state}/bet/betslip?selectionIds=a689d9e4-da28-3dbe-ac45-95b37d185202"
+      },
+      "betmgm": {
+        "american": -105,
+        "decimal": 1.95,
+        "link": "https://sports.{state}.betmgm.com/en/sports?options=16863523-1226711605--794552530&type=Single"
+      }
+    }
+  }
+}

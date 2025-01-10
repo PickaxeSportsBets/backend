@@ -5,7 +5,7 @@ import time
 import json
 import logging
 import os
-from .betslip import BetslipURLGenerator
+from betslip import BetslipURLGenerator
 
 
 def power_devig(odds_list):
@@ -851,7 +851,7 @@ class OddsArbitrageFinder:
                                     'fair_odds': fair_odd,
                                     'ev_percentage': round(ev_percentage, 2),
                                     'link': odds.get('link', ''),
-                                    'market_data': market_data
+                                    'market_data': json.dumps(market_data)
                                 })
 
         # Check player props
@@ -944,6 +944,7 @@ class OddsArbitrageFinder:
                                     if ev_percentage >= self.ev_threshold:
                                         logger.info(
                                             f"Found +EV prop vs FanDuel: {odds['bookmaker']} {odds['team']} @ {american_odds}")
+                                        print(type(json.dumps(market_data)))
                                         plus_ev_opportunities.append({
                                             'sport': game['sport_title'],
                                             'market_type': f"Player Prop - {prop_readable}",
@@ -956,7 +957,7 @@ class OddsArbitrageFinder:
                                             'fair_odds': fair_odd,
                                             'ev_percentage': round(ev_percentage, 2),
                                             'link': odds.get('link', ''),
-                                            'market_data': market_data[point]
+                                            'market_data': json.dumps(market_data[point])
                                         })
 
         except Exception as e:
@@ -966,7 +967,7 @@ class OddsArbitrageFinder:
         return plus_ev_opportunities
 
     def generate_arbitrage_table(self):
-        #print("Analyzing...")
+        # print("Analyzing...")
         self.all_opportunities = []
         self.all_odds_data = []
         self.all_plus_ev = []
@@ -994,7 +995,7 @@ class OddsArbitrageFinder:
                 self.all_opportunities.extend(opportunities)
 
                 plus_ev = self.find_plus_ev_bets(game)
-                #print(plus_ev)
+                # print(plus_ev)
                 self.all_plus_ev.extend(plus_ev)
 
         if self.all_opportunities:
@@ -1123,11 +1124,11 @@ class OddsArbitrageFinder:
         return data
 
 
-# def main():
-#     api_key = os.getenv('ODDS_API_KEY')
-#     arbitrage_finder = OddsArbitrageFinder(api_key)
-#     arbitrage_finder.run_update_db()
+def main():
+    api_key = os.getenv('ODDS_API_KEY')
+    arbitrage_finder = OddsArbitrageFinder(api_key)
+    arbitrage_finder.run_update_db()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
