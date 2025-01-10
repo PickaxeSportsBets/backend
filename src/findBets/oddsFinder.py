@@ -5,7 +5,7 @@ import time
 import json
 import logging
 import os
-from betslip import BetslipURLGenerator
+from .betslip import BetslipURLGenerator
 
 
 def power_devig(odds_list):
