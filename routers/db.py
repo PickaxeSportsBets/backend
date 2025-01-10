@@ -16,6 +16,20 @@ supabase: Client = create_client(url, key)
 router = APIRouter(tags=["db"])
 
 
+@router.get("/evBets")
+async def get_ev_bets():
+    response = supabase.table("plus_ev").select("*").execute()
+    data = response.data
+    return data
+
+
+@router.get("/arbitrageBets")
+async def get_arbitrage_bets():
+    response = supabase.table("arbitrage").select("*").execute()
+    data = response.data
+    return data
+
+
 @router.get("/")
 async def read_root():
     return {"Hello": "World"}
