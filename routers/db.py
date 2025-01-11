@@ -6,8 +6,6 @@ from src.findBets import OddsArbitrageFinder
 from datetime import datetime, timezone
 import pandas as pd
 import json
-from fastapi_utils.session import FastAPISessionMaker
-from fastapi_utils.tasks import repeat_every
 
 load_dotenv()
 
