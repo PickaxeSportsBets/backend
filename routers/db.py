@@ -36,7 +36,7 @@ async def read_root():
     return {"Hello": "World"}
 
 
-@router.get("/arbitrage")
+@router.post("/update_db")
 async def update_db():
     api_key = os.environ.get("ODDS_API_KEY")
     arbitrage_finder = OddsArbitrageFinder(api_key)
@@ -45,20 +45,19 @@ async def update_db():
     arbitrage_df = data[0]
     arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
 
-    return arbitrage_json
-
-
-@router.get("/plus_ev")
-async def update_db():
-    api_key = os.environ.get("ODDS_API_KEY")
-    arbitrage_finder = OddsArbitrageFinder(api_key)
-    data = arbitrage_finder.run_update_db()
-
     plus_ev_df = data[1]
-
     plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
 
-    return plus_ev_json
+    (supabase.table("arbitrage").upsert(arbitrage_json).execute())
+    (supabase.table("arbitrage")).delete().lt("commence_time", datetime.now(timezone.utc)).execute()
+
+    (supabase.table("plus_ev").upsert(plus_ev_json).execute())
+    (supabase.table("plus_ev")).delete().lt("commence_time", datetime.now(timezone.utc)).execute()
+
+    return {
+        "code": 200,
+        "status": "Success"
+    }
 
 
 @router.get("/items/")
