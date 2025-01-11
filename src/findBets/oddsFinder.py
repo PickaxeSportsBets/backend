@@ -6,12 +6,14 @@ import json
 import logging
 import os
 from .betslip import BetslipURLGenerator
+import hashlib
 
 
 def power_devig(odds_list):
     """
     Devig odds using the power method to find fair probabilities
     """
+
     # Convert American odds to probabilities
     def american_to_prob(odds):
         if odds > 0:
@@ -604,7 +606,7 @@ class OddsArbitrageFinder:
                                         )
 
                                         hold_percentage = (
-                                            total_prob - 1) * 100
+                                                                  total_prob - 1) * 100
                                         opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
                                         profit_percentage = round(
                                             ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
@@ -717,8 +719,8 @@ class OddsArbitrageFinder:
                                     arbitrage_opportunities.append({
                                         'sport': game['sport_title'],
                                         'market_type': 'alternate_spreads' if 'alternate_spreads' in market_key
-                                                       else 'alternate_totals' if 'alternate_totals' in market_key
-                                                       else market_key.split('_')[0],
+                                        else 'alternate_totals' if 'alternate_totals' in market_key
+                                        else market_key.split('_')[0],
                                         'market_point': odds1.get('point'),
                                         'game': f"{game['home_team']} vs {game['away_team']}",
                                         'commence_time': game['commence_time'],
@@ -811,7 +813,7 @@ class OddsArbitrageFinder:
                         if decimal_odds > fair_decimal:
                             # Calculate EV percentage
                             ev_percentage = (
-                                (decimal_odds / fair_decimal) - 1) * 100
+                                                    (decimal_odds / fair_decimal) - 1) * 100
 
                             if ev_percentage >= self.ev_threshold:
                                 # Prepare market display name
@@ -922,15 +924,15 @@ class OddsArbitrageFinder:
 
                                 # Existing EV calculation logic remains the same
                                 if (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or \
-                                    (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
+                                        (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
                                         (american_odds > 0 and fair_odd < 0):
 
                                     if american_odds > 0:
                                         decimal_odds = (
-                                            american_odds / 100) + 1
+                                                               american_odds / 100) + 1
                                     else:
                                         decimal_odds = (
-                                            100 / abs(american_odds)) + 1
+                                                               100 / abs(american_odds)) + 1
 
                                     if fair_odd > 0:
                                         fair_prob = 100 / (fair_odd + 100)
@@ -939,7 +941,7 @@ class OddsArbitrageFinder:
                                             fair_odd) / (abs(fair_odd) + 100)
 
                                     ev_percentage = (
-                                        decimal_odds * fair_prob - 1) * 100
+                                                            decimal_odds * fair_prob - 1) * 100
 
                                     if ev_percentage >= self.ev_threshold:
                                         logger.info(
@@ -1000,15 +1002,24 @@ class OddsArbitrageFinder:
 
         if self.all_opportunities:
             df = pd.DataFrame(self.all_opportunities)
-            df['timestamp'] = datetime.now(timezone.utc)
+            df['timestamp'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            df['primary_key'] = (df['market_type'].astype(str) + df['game'].astype(str) + df['team1_name'].astype(str)
+                                 + df['team2_name'].astype(str) + df['commence_time'].astype(str) + df[
+                                     'team1_book'].astype(str)
+                                 + df['team2_book'].astype(str) + df['team1_odds'].astype(str) + df[
+                                     'team2_odds'].astype(str) + df['market_type'].astype(str) + df[
+                                         'prop_description'].astype(str)
+                                 ).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
 
             ev_df = pd.DataFrame(self.all_plus_ev)
-            ev_df['primary_key'] = ev_df['game'].astype(str) + ev_df['team'].astype(
-                str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(str)
+            ev_df['primary_key'] = (ev_df['game'].astype(str) + ev_df['team'].astype(
+                str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(
+                str)).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
+
             ev_df.to_csv('plus_ev_bets.csv', index=False)
 
             columns = [
-                'opportunity_type', 'hold_percentage',
+                'primary_key', 'opportunity_type', 'hold_percentage',
                 'sport', 'market_type', 'prop_description',
                 'market_point', 'game', 'commence_time',
                 'team1_name', 'team1_book', 'team1_odds', 'team1_point', 'team1_stake', 'team1_link',
