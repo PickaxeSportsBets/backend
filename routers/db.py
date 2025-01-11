@@ -6,6 +6,8 @@ from src.findBets import OddsArbitrageFinder
 from datetime import datetime, timezone
 import pandas as pd
 import json
+from fastapi_utils.session import FastAPISessionMaker
+from fastapi_utils.tasks import repeat_every
 
 load_dotenv()
 
@@ -49,10 +51,12 @@ async def update_db():
     plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
 
     (supabase.table("arbitrage").upsert(arbitrage_json).execute())
-    (supabase.table("arbitrage")).delete().lt("commence_time", datetime.now(timezone.utc)).execute()
+    (supabase.table("arbitrage")).delete().lt(
+        "commence_time", datetime.now(timezone.utc)).execute()
 
     (supabase.table("plus_ev").upsert(plus_ev_json).execute())
-    (supabase.table("plus_ev")).delete().lt("commence_time", datetime.now(timezone.utc)).execute()
+    (supabase.table("plus_ev")).delete().lt(
+        "commence_time", datetime.now(timezone.utc)).execute()
 
     return {
         "code": 200,
