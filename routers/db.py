@@ -36,7 +36,7 @@ async def read_root():
     return {"Hello": "World"}
 
 
-@router.get("/update_db")
+@router.post("/update_db")
 async def update_db():
     api_key = os.environ.get("ODDS_API_KEY")
     arbitrage_finder = OddsArbitrageFinder(api_key)
