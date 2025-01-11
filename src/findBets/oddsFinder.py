@@ -1005,7 +1005,6 @@ class OddsArbitrageFinder:
             ev_df = pd.DataFrame(self.all_plus_ev)
             ev_df['primary_key'] = ev_df['game'].astype(str) + ev_df['team'].astype(
                 str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(str)
-            ev_df.to_csv('plus_ev_bets.csv', index=False)
 
             columns = [
                 'opportunity_type', 'hold_percentage',
