@@ -1017,6 +1017,9 @@ class OddsArbitrageFinder:
                 str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(
                 str)).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
 
+            ev_df['timestamp'] = datetime.now(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+
             ev_df.to_csv('plus_ev_bets.csv', index=False)
 
             columns = [
@@ -1030,7 +1033,7 @@ class OddsArbitrageFinder:
             return df[columns], ev_df
         else:
             return pd.DataFrame(columns=[
-                'opportunity_type', 'hold_percentage',
+                'primary_key', 'opportunity_type', 'hold_percentage',
                 'sport', 'market_type', 'prop_description',
                 'market_point', 'game', 'commence_time',
                 'team1_name', 'team1_book', 'team1_odds', 'team1_point', 'team1_stake', 'team1_link',
