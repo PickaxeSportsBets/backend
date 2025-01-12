@@ -744,117 +744,90 @@ class OddsArbitrageFinder:
         return arbitrage_opportunities
 
     def find_plus_ev_bets(self, game, additional_odds=None):
-        """Find plus EV betting opportunities across all markets"""
+        """Find plus EV betting opportunities for moneylines and player props"""
         plus_ev_opportunities = []
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger('plus_ev_finder')
-
-        all_markets = self.featured_markets + self.additional_markets
 
         all_bookmakers = game['bookmakers']
         if additional_odds:
             all_bookmakers.extend(additional_odds)
 
-        for market_type in all_markets:
-            markets = self.process_markets(all_bookmakers, market_type)
-            for market_key, market_odds in markets.items():
-                # Find Pinnacle odds
-                pinnacle_odds = []
-                market_data = {}  # Store all market data
+        # Check moneyline markets
+        markets = self.process_markets(all_bookmakers, 'h2h')
+        for market_key, market_odds in markets.items():
+            # Find Pinnacle odds
+            pinnacle_odds = []
+            market_data = {}  # Store all market data
 
-                # First, collect all odds by outcome
-                for odds in market_odds:
-                    outcome_key = f"{odds['team']}_{odds.get('point', '')}"
-                    if outcome_key not in market_data:
-                        market_data[outcome_key] = {'odds': {}}
+            # First, collect all odds by team
+            for odds in market_odds:
+                team = odds['team']
+                if team not in market_data:
+                    market_data[team] = {'odds': {}}
 
-                    book = odds['bookmaker'].lower()
-                    market_data[outcome_key]['odds'][book] = {
-                        'american': self.decimal_to_american(odds['price']),
-                        'decimal': odds['price'],
-                        'link': odds.get('link', '')
-                    }
+                book = odds['bookmaker'].lower()
+                market_data[team]['odds'][book] = {
+                    'american': self.decimal_to_american(odds['price']),
+                    'decimal': odds['price'],
+                    'link': odds.get('link', '')
+                }
 
-                    if odds['bookmaker'].lower() == 'pinnacle':
-                        pinnacle_odds.append(odds)
+                if odds['bookmaker'].lower() == 'pinnacle':
+                    pinnacle_odds.append(odds)
 
-                # Skip if we don't have complete Pinnacle odds
-                if not pinnacle_odds or len(pinnacle_odds) != 2:
-                    continue
+            if not pinnacle_odds or len(pinnacle_odds) != 2:
+                continue
 
-                # Sort Pinnacle odds consistently
-                pinnacle_odds.sort(key=lambda x: x['team'])
-                pinnacle_american = [self.decimal_to_american(
-                    odds['price']) for odds in pinnacle_odds]
+            # Sort Pinnacle odds by team name for consistency
+            pinnacle_odds.sort(key=lambda x: x['team'])
+            pinnacle_american = [self.decimal_to_american(
+                odds['price']) for odds in pinnacle_odds]
 
-                # Calculate fair odds using power method
-                fair_odds = power_devig(pinnacle_american)
+            # Calculate fair odds using power method
+            fair_odds = power_devig(pinnacle_american)
 
-                # Compare US books against fair odds
-                for odds in market_odds:
-                    if odds['bookmaker'].lower() in [b.lower() for b in self.regions['us']]:
-                        american_odds = self.decimal_to_american(odds['price'])
+            # Compare US books against fair odds
+            for odds in market_odds:
+                if odds['bookmaker'].lower() in [b.lower() for b in self.regions['us']]:
+                    american_odds = self.decimal_to_american(odds['price'])
+                    team_index = 0 if odds['team'] == pinnacle_odds[0]['team'] else 1
+                    fair_odd = fair_odds[team_index]
 
-                        # Find matching fair odds based on market type
-                        team_index = 0 if odds['team'] == pinnacle_odds[0]['team'] else 1
-                        fair_odd = fair_odds[team_index]
+                    # Only consider when book odds are better than fair odds
+                    if (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or \
+                        (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
+                            (american_odds > 0 and fair_odd < 0):
 
-                        # Convert both to decimal for proper comparison
-                        def to_decimal(american):
-                            if american > 0:
-                                return 1 + (american / 100)
-                            else:
-                                return 1 - (100 / american)
+                        # Calculate EV
+                        if american_odds > 0:
+                            decimal_odds = (american_odds / 100) + 1
+                        else:
+                            decimal_odds = (100 / abs(american_odds)) + 1
 
-                        decimal_odds = to_decimal(american_odds)
-                        fair_decimal = to_decimal(fair_odd)
+                        if fair_odd > 0:
+                            fair_prob = 100 / (fair_odd + 100)
+                        else:
+                            fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
 
-                        # Compare decimal odds - higher decimal odds are always better
-                        if decimal_odds > fair_decimal:
-                            # Calculate EV percentage
-                            ev_percentage = (
-                                (decimal_odds / fair_decimal) - 1) * 100
+                        ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
-                            if ev_percentage >= self.ev_threshold:
-                                # Prepare market display name
-                                if 'spreads' in market_type:
-                                    market_display = f"Spread {odds.get('point', '')}"
-                                elif 'totals' in market_type:
-                                    market_display = f"Total {odds.get('point', '')}"
-                                else:
-                                    market_display = 'Moneyline'
-
-                                # Add period/quarter info if present
-                                if '_' in market_type:
-                                    period = market_type.split('_')[1].upper()
-                                    if period.startswith('Q'):
-                                        market_display = f"Q{period[1]} {market_display}"
-                                    elif period.startswith('H'):
-                                        market_display = f"H{period[1]} {market_display}"
-                                    elif period.startswith('P'):
-                                        market_display = f"P{period[1]} {market_display}"
-
-                                # logger.info(f"""Found +EV opportunity:
-                                #     Book: {odds['bookmaker']}
-                                #     Team: {odds['team']}
-                                #     Odds: {american_odds} (fair: {fair_odd})
-                                #     EV: {ev_percentage:.2f}%
-                                # """)
-
-                                plus_ev_opportunities.append({
-                                    'sport': game['sport_title'],
-                                    'market_type': market_display,
-                                    'market_point': odds.get('point'),
-                                    'game': f"{game['home_team']} vs {game['away_team']}",
-                                    'commence_time': game['commence_time'],
-                                    'team': odds['team'],
-                                    'bookmaker': odds['bookmaker'],
-                                    'odds': american_odds,
-                                    'fair_odds': fair_odd,
-                                    'ev_percentage': round(ev_percentage, 2),
-                                    'link': odds.get('link', ''),
-                                    'market_data': json.dumps(market_data)
-                                })
+                        if ev_percentage >= self.ev_threshold:
+                            logger.info(f"Found +EV opportunity!")
+                            plus_ev_opportunities.append({
+                                'sport': game['sport_title'],
+                                'market_type': 'Moneyline',
+                                'market_point': None,
+                                'game': f"{game['home_team']} vs {game['away_team']}",
+                                'commence_time': game['commence_time'],
+                                'team': odds['team'],
+                                'bookmaker': odds['bookmaker'],
+                                'odds': american_odds,
+                                'fair_odds': fair_odd,
+                                'ev_percentage': round(ev_percentage, 2),
+                                'link': odds.get('link', ''),
+                                'market_data': market_data  # Include full market data
+                            })
 
         # Check player props
         try:
@@ -924,7 +897,7 @@ class OddsArbitrageFinder:
 
                                 # Existing EV calculation logic remains the same
                                 if (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or \
-                                        (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
+                                    (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
                                         (american_odds > 0 and fair_odd < 0):
 
                                     if american_odds > 0:
@@ -945,8 +918,7 @@ class OddsArbitrageFinder:
 
                                     if ev_percentage >= self.ev_threshold:
                                         logger.info(
-                                            f"Found +EV prop vs FanDuel: {odds['bookmaker']} {odds['team']} @ {american_odds}")
-                                        print(type(json.dumps(market_data)))
+                                            f"Found +EV prop vs Pinnacle: {odds['bookmaker']} {odds['team']} @ {american_odds}")
                                         plus_ev_opportunities.append({
                                             'sport': game['sport_title'],
                                             'market_type': f"Player Prop - {prop_readable}",
@@ -959,7 +931,7 @@ class OddsArbitrageFinder:
                                             'fair_odds': fair_odd,
                                             'ev_percentage': round(ev_percentage, 2),
                                             'link': odds.get('link', ''),
-                                            'market_data': json.dumps(market_data[point])
+                                            'market_data': market_data[point]
                                         })
 
         except Exception as e:
