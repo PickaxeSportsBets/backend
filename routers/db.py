@@ -65,28 +65,69 @@ async def updage_arb():
 
 @router.post("/update_db")
 async def update_db():
-    api_key = os.environ.get("ODDS_API_KEY")
-    arbitrage_finder = OddsArbitrageFinder(api_key)
-    data = arbitrage_finder.run_update_db()
+    try:
+        api_key = os.environ.get("ODDS_API_KEY")
+        arbitrage_finder = OddsArbitrageFinder(api_key)
+        data = arbitrage_finder.run_update_db()
 
-    arbitrage_df = data[0]
-    arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
+        # Process arbitrage data
+        arbitrage_df = data[0]
+        if not arbitrage_df.empty:
+            # Remove duplicates based on primary_key before converting to JSON
+            arbitrage_df = arbitrage_df.drop_duplicates(subset=['primary_key'])
+            arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
 
-    plus_ev_df = data[1]
-    plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
+            # First delete old records
+            supabase.table("arbitrage").delete().lt(
+                "commence_time", datetime.now(timezone.utc)).execute()
 
-    (supabase.table("arbitrage").upsert(arbitrage_json).execute())
-    (supabase.table("arbitrage")).delete().lt(
-        "commence_time", datetime.now(timezone.utc)).execute()
+            # Then insert new records in batches to prevent overwhelming the database
+            batch_size = 100
+            for i in range(0, len(arbitrage_json), batch_size):
+                batch = arbitrage_json[i:i + batch_size]
+                supabase.table("arbitrage").upsert(
+                    batch,
+                    on_conflict='primary_key',
+                    ignore_duplicates=True
+                ).execute()
 
-    (supabase.table("plus_ev").upsert(plus_ev_json).execute())
-    (supabase.table("plus_ev")).delete().lt(
-        "commence_time", datetime.now(timezone.utc)).execute()
+        # Process plus_ev data
+        plus_ev_df = data[1]
+        if not plus_ev_df.empty:
+            # Remove duplicates based on primary_key before converting to JSON
+            plus_ev_df = plus_ev_df.drop_duplicates(subset=['primary_key'])
+            plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
 
-    return {
-        "code": 200,
-        "status": "Success"
-    }
+            # First delete old records
+            supabase.table("plus_ev").delete().lt(
+                "commence_time", datetime.now(timezone.utc)).execute()
+
+            # Then insert new records in batches
+            for i in range(0, len(plus_ev_json), batch_size):
+                batch = plus_ev_json[i:i + batch_size]
+                supabase.table("plus_ev").upsert(
+                    batch,
+                    on_conflict='primary_key',
+                    ignore_duplicates=True
+                ).execute()
+
+        return {
+            "code": 200,
+            "status": "Success",
+            "message": "Database updated successfully"
+        }
+
+    except Exception as e:
+        # Log the error for debugging
+        logging.error(f"Error in update_db: {str(e)}", exc_info=True)
+
+        # Return a more detailed error response
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e),
+            "type": type(e).__name__
+        }
 
 
 @router.get("/items/")
