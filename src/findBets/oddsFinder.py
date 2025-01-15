@@ -969,7 +969,6 @@ class OddsArbitrageFinder:
                 self.all_opportunities.extend(opportunities)
 
                 plus_ev = self.find_plus_ev_bets(game)
-                # print(plus_ev)
                 self.all_plus_ev.extend(plus_ev)
 
         if self.all_opportunities:
@@ -1109,6 +1108,117 @@ class OddsArbitrageFinder:
         arbitrage_df = data[0]
         plus_ev_df = data[1]
         return data
+
+    def generate_ev_ONLY(self):
+        # print("Analyzing...")
+        self.all_opportunities = []
+        self.all_odds_data = []
+        self.all_plus_ev = []
+        self.all_player_props = {}  # Reset player props
+
+        for sport in self.sports:
+            featured_odds = self.get_featured_odds(sport)
+
+            for game in featured_odds:
+                # Collect regular odds data
+                odds_data = self.collect_all_odds(game)
+                self.all_odds_data.extend(odds_data)
+
+                # Fetch and store player props
+                props = self.get_player_props(game['sport_key'], game['id'])
+                if props:
+                    self.all_player_props[game['id']] = {
+                        'props': props,
+                        'game': game
+                    }
+
+                # Process opportunities
+                additional_odds = self.get_event_odds(sport, game['id'])
+                opportunities = self.find_opportunities(game, additional_odds)
+                self.all_opportunities.extend(opportunities)
+
+                plus_ev = self.find_plus_ev_bets(game)
+                self.all_plus_ev.extend(plus_ev)
+
+            ev_df = pd.DataFrame(self.all_plus_ev)
+            ev_df['primary_key'] = (ev_df['game'].astype(str) + ev_df['team'].astype(
+                str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(
+                str)).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
+
+            ev_df['timestamp'] = datetime.now(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+
+            ev_df.to_csv('plus_ev_bets.csv', index=False)
+
+            columns = [
+                'primary_key', 'opportunity_type', 'hold_percentage',
+                'sport', 'market_type', 'prop_description',
+                'market_point', 'game', 'commence_time',
+                'team1_name', 'team1_book', 'team1_odds', 'team1_point', 'team1_stake', 'team1_link',
+                'team2_name', 'team2_book', 'team2_odds', 'team2_point', 'team2_stake', 'team2_link',
+                'profit_percentage', 'timestamp'
+            ]
+            return ev_df
+        else:
+            return ev_df
+
+    def generate_arb_only(self):
+        # print("Analyzing...")
+        self.all_opportunities = []
+        self.all_odds_data = []
+        self.all_plus_ev = []
+        self.all_player_props = {}  # Reset player props
+
+        for sport in self.sports:
+            featured_odds = self.get_featured_odds(sport)
+
+            for game in featured_odds:
+                # Collect regular odds data
+                odds_data = self.collect_all_odds(game)
+                self.all_odds_data.extend(odds_data)
+
+                # Fetch and store player props
+                props = self.get_player_props(game['sport_key'], game['id'])
+                if props:
+                    self.all_player_props[game['id']] = {
+                        'props': props,
+                        'game': game
+                    }
+
+                # Process opportunities
+                additional_odds = self.get_event_odds(sport, game['id'])
+                opportunities = self.find_opportunities(game, additional_odds)
+                self.all_opportunities.extend(opportunities)
+        if self.all_opportunities:
+            df = pd.DataFrame(self.all_opportunities)
+            df['timestamp'] = datetime.now(
+                timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            df['primary_key'] = (df['market_type'].astype(str) + df['game'].astype(str) + df['team1_name'].astype(str)
+                                 + df['team2_name'].astype(str) + df['commence_time'].astype(str) + df[
+                                     'team1_book'].astype(str)
+                                 + df['team2_book'].astype(str) + df['team1_odds'].astype(str) + df[
+                                     'team2_odds'].astype(str) + df['market_type'].astype(str) + df[
+                                         'prop_description'].astype(str)
+                                 ).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
+
+            columns = [
+                'primary_key', 'opportunity_type', 'hold_percentage',
+                'sport', 'market_type', 'prop_description',
+                'market_point', 'game', 'commence_time',
+                'team1_name', 'team1_book', 'team1_odds', 'team1_point', 'team1_stake', 'team1_link',
+                'team2_name', 'team2_book', 'team2_odds', 'team2_point', 'team2_stake', 'team2_link',
+                'profit_percentage', 'timestamp'
+            ]
+            return df[columns]
+        else:
+            return pd.DataFrame(columns=[
+                'primary_key', 'opportunity_type', 'hold_percentage',
+                'sport', 'market_type', 'prop_description',
+                'market_point', 'game', 'commence_time',
+                'team1_name', 'team1_book', 'team1_odds', 'team1_point', 'team1_stake', 'team1_link',
+                'team2_name', 'team2_book', 'team2_odds', 'team2_point', 'team2_stake', 'team2_link',
+                'profit_percentage', 'timestamp'
+            ])
 
 
 def main():
