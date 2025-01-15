@@ -6,7 +6,8 @@ from src.findBets import OddsArbitrageFinder
 from datetime import datetime, timezone
 import pandas as pd
 import json
-
+from src.findBets import OddsArbitrageFinderV2
+import logging
 load_dotenv()
 
 url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
@@ -130,8 +131,62 @@ async def update_db():
         }
 
 
-@router.get("/items/")
-async def read_items(q: str = Query(None)):
-    if q:
-        return {"q": q}
-    return {"q": "None"}
+@router.post("/update_dbV2")
+async def update_db():
+    try:
+        api_key = os.environ.get("ODDS_API_KEY")
+        arbitrage_finder = OddsArbitrageFinderV2(api_key)
+        data = await arbitrage_finder.get_dfs()
+
+        # Process arbitrage data
+        arbitrage_df = data[0]
+        if not arbitrage_df.empty:
+            arbitrage_df = arbitrage_df.drop_duplicates(subset=['primary_key'])
+            arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
+
+            supabase.table("arbitrage").delete().lt(
+                "commence_time", datetime.now(timezone.utc)).execute()
+
+            batch_size = 100
+            for i in range(0, len(arbitrage_json), batch_size):
+                batch = arbitrage_json[i:i + batch_size]
+                supabase.table("arbitrage").upsert(
+                    batch,
+                    on_conflict='primary_key',
+                    ignore_duplicates=True
+                ).execute()
+
+        # Process plus_ev data
+        plus_ev_df = data[1]
+        if not plus_ev_df.empty:
+            plus_ev_df = plus_ev_df.drop_duplicates(subset=['primary_key'])
+            plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
+
+            supabase.table("plus_ev").delete().lt(
+                "commence_time", datetime.now(timezone.utc)).execute()
+
+            for i in range(0, len(plus_ev_json), batch_size):
+                batch = plus_ev_json[i:i + batch_size]
+                supabase.table("plus_ev").upsert(
+                    batch,
+                    on_conflict='primary_key',
+                    ignore_duplicates=True
+                ).execute()
+
+        return {
+            "code": 200,
+            "status": "Success",
+            "message": "Database updated successfully"
+        }
+
+    except Exception as e:
+        # Log the error for debugging
+        logging.error(f"Error in update_db: {str(e)}", exc_info=True)
+
+        # Return a more detailed error response
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e),
+            "type": type(e).__name__
+        }
