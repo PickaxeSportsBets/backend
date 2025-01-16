@@ -128,7 +128,7 @@ class OddsArbitrageFinder:
             'eu': ['pinnacle']
         }
 
-        self.low_hold_threshold = 1.03
+        self.low_hold_threshold = 1.04
         self.ev_threshold = 2.0  # Minimum +EV percentage to include
         self.all_odds_data = []
         self.all_opportunities = []
