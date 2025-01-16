@@ -85,10 +85,21 @@ class OddsArbitrageFinder:
             'basketball_ncaab',
             'basketball_nba',
             'icehockey_nhl',
-            'americanfootball_nfl'
+            'americanfootball_nfl',
+            'tennis_wta_aus_open_singles',
+            'tennis_atp_aus_open_singles'  # Added ATP singles
+        ]
+        
+        # Add tennis-specific markets
+        self.tennis_markets = [
+            'h2h',  # Match winner
+            'set_winner',  # Individual set winners
+            'game_winner',  # Individual game winners
+            'set_spread',  # Set handicap
+            'game_spread'  # Game handicap
         ]
 
-        self.featured_markets = ['h2h', 'spreads', 'totals']
+        self.featured_markets = ['h2h', 'spreads', 'totals'] + self.tennis_markets
         self.additional_markets = [
             'alternate_spreads', 'alternate_totals',
             'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
@@ -120,6 +131,14 @@ class OddsArbitrageFinder:
             'NHL': [
                 'player_points', 'player_shots_on_goal', 'player_goals',
                 'player_assists'
+            ],
+            'TENNIS': [  # Added tennis props
+                'player_aces',
+                'player_double_faults',
+                'player_games_won',
+                'player_sets_won',
+                'match_total_games',
+                'match_total_sets'
             ]
         }
 
