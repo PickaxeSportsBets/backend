@@ -1037,7 +1037,7 @@ class OddsArbitrageFinder:
                             'link': odds.get('link', '')
                         }
 
-                        if book == 'fanduel':  # Changed from 'pinnacle' to 'fanduel'
+                        if book == 'pinnacle':  # Changed from 'pinnacle' to 'fanduel'
                             fanduel_odds[side][point] = odds
 
                     # Check each line where we have both FanDuel odds
@@ -1057,7 +1057,7 @@ class OddsArbitrageFinder:
 
                         # Check other books at this point
                         for odds in market_odds:
-                            if odds['point'] != float(point) or odds['bookmaker'].lower() == 'fanduel':
+                            if odds['point'] != float(point) or odds['bookmaker'].lower() == 'pinnacle':
                                 continue
 
                             if odds['bookmaker'].lower() in [b.lower() for b in self.regions['us']]:
@@ -1089,7 +1089,7 @@ class OddsArbitrageFinder:
 
                                     if ev_percentage >= self.ev_threshold:
                                         logger.info(
-                                            f"Found +EV prop vs FanDuel: {odds['bookmaker']} {odds['team']} @ {american_odds}")
+                                            f"Found +EV prop vs Pinnacle: {odds['bookmaker']} {odds['team']} @ {american_odds}")
                                         plus_ev_opportunities.append({
                                             'sport': game['sport_title'],
                                             'market_type': f"Player Prop - {prop_readable}",
