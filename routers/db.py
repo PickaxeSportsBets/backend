@@ -144,17 +144,15 @@ async def update_db():
             arbitrage_df = arbitrage_df.drop_duplicates(subset=['primary_key'])
             arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
 
-            supabase.table("arbitrage").delete().lt(
-                "commence_time", datetime.now(timezone.utc)).execute()
+            # Delete all existing records from arbitrage table with a WHERE clause
+            supabase.table("arbitrage").delete().neq(
+                'primary_key', 'no_match').execute()
 
+            # Insert new records in batches
             batch_size = 100
             for i in range(0, len(arbitrage_json), batch_size):
                 batch = arbitrage_json[i:i + batch_size]
-                supabase.table("arbitrage").upsert(
-                    batch,
-                    on_conflict='primary_key',
-                    ignore_duplicates=True
-                ).execute()
+                supabase.table("arbitrage").insert(batch).execute()
 
         # Process plus_ev data
         plus_ev_df = data[1]
@@ -162,31 +160,25 @@ async def update_db():
             plus_ev_df = plus_ev_df.drop_duplicates(subset=['primary_key'])
             plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
 
-            supabase.table("plus_ev").delete().lt(
-                "commence_time", datetime.now(timezone.utc)).execute()
+            # Delete all existing records from plus_ev table with a WHERE clause
+            supabase.table("plus_ev").delete().neq(
+                'primary_key', 'no_match').execute()
 
+            # Insert new records in batches
             for i in range(0, len(plus_ev_json), batch_size):
                 batch = plus_ev_json[i:i + batch_size]
-                supabase.table("plus_ev").upsert(
-                    batch,
-                    on_conflict='primary_key',
-                    ignore_duplicates=True
-                ).execute()
+                supabase.table("plus_ev").insert(batch).execute()
 
         return {
             "code": 200,
             "status": "Success",
             "message": "Database updated successfully"
         }
-
     except Exception as e:
-        # Log the error for debugging
-        logging.error(f"Error in update_db: {str(e)}", exc_info=True)
-
-        # Return a more detailed error response
+        # Log the full error for debugging
+        print(f"Error in update_db: {str(e)}")
         return {
             "code": 500,
             "status": "Error",
-            "message": str(e),
-            "type": type(e).__name__
+            "message": str(e)
         }
