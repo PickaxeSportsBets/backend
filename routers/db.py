@@ -168,6 +168,7 @@ async def update_db():
             for i in range(0, len(plus_ev_json), batch_size):
                 batch = plus_ev_json[i:i + batch_size]
                 supabase.table("plus_ev").insert(batch).execute()
+                supabase.table("ev_graph").insert(batch).execute()
 
         return {
             "code": 200,
