@@ -13,9 +13,12 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    # Modify this in production
     allow_origins=[
-        "pickaxe-website-production.up.railway.app", "localhost:3000"],
+        "https://pickaxe-website-production.up.railway.app",
+        "http://localhost:3000",
+        "https://localhost:3000",
+        "https://pickaxebets.com/"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
