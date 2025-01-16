@@ -17,7 +17,7 @@ app.add_middleware(
         "https://pickaxe-website-production.up.railway.app",
         "http://localhost:3000",
         "https://localhost:3000",
-        "https://pickaxebets.com/"
+        "https://pickaxebets.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
