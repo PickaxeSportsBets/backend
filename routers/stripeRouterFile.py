@@ -22,7 +22,8 @@ url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 supabase: Client = create_client(url, key)
 # Environment variables
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+# STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_WEBHOOK_SECRET = "whsec_a995f57ecaeb5da30073910f415e12e24e2839a3f29504d4980be3d1dc647867"
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
 CLERK_API_BASE = "https://api.clerk.dev/v1"
 
@@ -38,13 +39,20 @@ class CheckoutRequest(BaseModel):
 
 @router.post("/create-checkout-session")
 async def create_checkout_session(request: CheckoutRequest):
-    print(request)
+    print("Received request:", request)  # Debug log
     try:
         # Create or retrieve Stripe customer
         customer = None
         customers = stripe.Customer.list(email=request.email)
         if customers.data:
             customer = customers.data[0]
+            # Update existing customer metadata
+            stripe.Customer.modify(
+                customer.id,
+                metadata={
+                    "clerk_user_id": request.clerk_user_id
+                }
+            )
         else:
             customer = stripe.Customer.create(
                 email=request.email,
@@ -53,7 +61,9 @@ async def create_checkout_session(request: CheckoutRequest):
                 }
             )
 
-        # Create checkout session
+        print("Customer metadata:", customer.metadata)  # Debug log
+
+        # Create checkout session with metadata
         checkout_session = stripe.checkout.Session.create(
             customer=customer.id,
             payment_method_types=['card'],
@@ -66,33 +76,57 @@ async def create_checkout_session(request: CheckoutRequest):
             cancel_url=f'{"https://pickaxebets.com"}/cancel',
             metadata={
                 "clerk_user_id": request.clerk_user_id
+            },
+            subscription_data={
+                "metadata": {
+                    "clerk_user_id": request.clerk_user_id
+                }
             }
         )
 
+        print("Session metadata:", checkout_session.metadata)  # Debug log
         return JSONResponse({"url": checkout_session.url})
 
     except stripe.error.StripeError as e:
+        print("Stripe error:", str(e))  # Debug log
         raise HTTPException(status_code=400, detail=str(e))
 
 
 class PortalRequest(BaseModel):
-    customer_id: str
+    customer_id: Optional[str] = None  # Make customer_id optional
     return_url: str
+    email: Optional[str] = None
 
 
 @router.post("/create-portal-session")
 async def create_portal_session(request: PortalRequest):
     try:
+        customer_id = request.customer_id
+
+        # If no customer_id but email is provided, try to find customer
+        if not customer_id and request.email:
+            customers = stripe.Customer.list(email=request.email, limit=1)
+            if customers.data:
+                customer_id = customers.data[0].id
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No customer found with this email"
+                )
+
+        if not customer_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Either customer_id or email must be provided"
+            )
+
         session = stripe.billing_portal.Session.create(
-            customer=request.customer_id,
+            customer=customer_id,
             return_url=request.return_url
         )
         return JSONResponse({"url": session.url})
     except stripe.error.StripeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-load_dotenv()
 
 
 async def handle_subscription_created(subscription):
@@ -103,15 +137,17 @@ async def handle_subscription_created(subscription):
             print("No clerk_user_id found in subscription metadata")
             return
 
-        # Get subscription details
+        # Get subscription details and convert datetimes to ISO strings
         subscription_data = {
             "subscription_id": subscription.id,
             "customer_id": subscription.customer,
             "status": subscription.status,
-            "current_period_end": datetime.fromtimestamp(subscription.current_period_end),
-            "current_period_start": datetime.fromtimestamp(subscription.current_period_start),
+            "current_period_end": datetime.fromtimestamp(subscription.current_period_end).isoformat(),
+            "current_period_start": datetime.fromtimestamp(subscription.current_period_start).isoformat(),
             "clerk_user_id": clerk_user_id
         }
+
+        print(f"Subscription data: {subscription_data}")
 
         # Update Clerk user metadata
         await update_clerk_user_metadata(
@@ -121,56 +157,108 @@ async def handle_subscription_created(subscription):
                     "role": "subscriber",
                     "subscription_status": subscription.status,
                     "subscription_id": subscription.id,
-                    "plan": subscription.plan.nickname or subscription.plan.id
+                    "plan": subscription.plan.nickname or subscription.plan.id,
+                    "stripe_customer_id": subscription.customer
                 }
             }
         )
 
-        # Store subscription in Supabase
-        data, error = supabase.table("subscriptions").insert(
-            subscription_data).execute()
-        if error:
-            print(f"Error storing subscription in Supabase: {error}")
+        # Check if subscription already exists
+        existing_sub = supabase.table("subscriptions").select(
+            "*").eq("subscription_id", subscription.id).execute()
+
+        if not existing_sub.data:
+            # Store subscription in Supabase
+            response = supabase.table("subscriptions").insert(
+                subscription_data).execute()
+            print(f"Created new subscription: {response}")
+        else:
+            print(f"Subscription already exists: {existing_sub}")
 
     except Exception as e:
         print(f"Error in handle_subscription_created: {e}")
+        print(f"Full error details: {str(e)}")
 
 
 async def handle_subscription_updated(subscription):
-    """Handle subscription updates"""
-    try:
-        clerk_user_id = subscription.metadata.get('clerk_user_id')
-        if not clerk_user_id:
-            return
+    """Handle subscription updates with retry logic"""
+    max_retries = 3
+    retry_delay = 1  # seconds
 
-        # Update subscription data
-        subscription_data = {
-            "status": subscription.status,
-            "current_period_end": datetime.fromtimestamp(subscription.current_period_end),
-            "current_period_start": datetime.fromtimestamp(subscription.current_period_start),
-        }
+    for attempt in range(max_retries):
+        try:
+            clerk_user_id = subscription.metadata.get('clerk_user_id')
+            if not clerk_user_id:
+                print("No clerk_user_id found in subscription metadata")
+                return
 
-        # Update Clerk metadata
-        await update_clerk_user_metadata(
-            clerk_user_id,
-            {
-                "public_metadata": {
-                    "subscription_status": subscription.status,
-                }
+            # Update subscription data with ISO format dates
+            subscription_data = {
+                "status": subscription.status,
+                "current_period_end": datetime.fromtimestamp(subscription.current_period_end).isoformat(),
+                "current_period_start": datetime.fromtimestamp(subscription.current_period_start).isoformat(),
             }
-        )
 
-        # Update Supabase
-        data, error = supabase.table("subscriptions")\
-            .update(subscription_data)\
-            .eq("subscription_id", subscription.id)\
-            .execute()
+            print(f"Attempt {attempt + 1}: Processing subscription update")
+            print(f"Subscription ID: {subscription.id}")
+            print(f"Update data: {subscription_data}")
 
-        if error:
-            print(f"Error updating subscription in Supabase: {error}")
+            # Check if subscription exists
+            current_subscriptions = supabase.table("subscriptions").select(
+                "*").eq("subscription_id", subscription.id).execute()
+            print(
+                f"Current subscription query result: {current_subscriptions}")
 
-    except Exception as e:
-        print(f"Error in handle_subscription_updated: {e}")
+            if not current_subscriptions.data:
+                if attempt < max_retries - 1:
+                    print(
+                        f"Subscription not found, attempt {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    # On final attempt, create the subscription if it doesn't exist
+                    full_subscription_data = {
+                        "subscription_id": subscription.id,
+                        "customer_id": subscription.customer,
+                        "status": subscription.status,
+                        "current_period_end": datetime.fromtimestamp(subscription.current_period_end).isoformat(),
+                        "current_period_start": datetime.fromtimestamp(subscription.current_period_start).isoformat(),
+                        "clerk_user_id": clerk_user_id
+                    }
+                    response = supabase.table("subscriptions").insert(
+                        full_subscription_data).execute()
+                    print(
+                        f"Created new subscription on final attempt: {response}")
+            else:
+                # Update existing subscription
+                response = supabase.table("subscriptions").update(
+                    subscription_data).eq("subscription_id", subscription.id).execute()
+                print(f"Updated existing subscription: {response}")
+
+            # Update Clerk metadata
+            await update_clerk_user_metadata(
+                clerk_user_id,
+                {
+                    "public_metadata": {
+                        "role": "subscriber",
+                        "subscription_status": subscription.status,
+                        "subscription_id": subscription.id,
+                        "plan": subscription.plan.nickname or subscription.plan.id,
+                        "stripe_customer_id": subscription.customer
+
+                    }
+                }
+            )
+
+            break  # Success, exit the retry loop
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1} failed, retrying... Error: {e}")
+                await asyncio.sleep(retry_delay)
+            else:
+                print(f"All attempts failed: {e}")
+                raise
 
 
 async def handle_subscription_deleted(subscription):
@@ -234,19 +322,27 @@ async def stripe_webhook(request: Request):
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
     except ValueError as e:
+        print(f"ValueError in webhook: {str(e)}")
         raise HTTPException(status_code=400, detail='Invalid payload')
     except stripe.error.SignatureVerificationError as e:
+        print(f"SignatureVerificationError in webhook: {str(e)}")
         raise HTTPException(status_code=400, detail='Invalid signature')
 
     try:
+
         if event.type == 'customer.subscription.created':
+            print("Processing subscription created")
             await handle_subscription_created(event.data.object)
         elif event.type == 'customer.subscription.updated':
+            print("Processing subscription updated")
             await handle_subscription_updated(event.data.object)
         elif event.type == 'customer.subscription.deleted':
+            print("Processing subscription deleted")
             await handle_subscription_deleted(event.data.object)
 
         return JSONResponse({'status': 'success'})
     except Exception as e:
         print(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail="Error processing webhook")
+        print(f"Full error details: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error processing webhook: {str(e)}")
