@@ -2,7 +2,9 @@ from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 import os
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-from routers import db_router
+from routers import db_router, stripe_router
+from uvicorn import *
+# from routers import stripe_router
 load_dotenv()
 
 app = FastAPI(
@@ -25,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(db_router, prefix="/api/v1/db")
+app.include_router(stripe_router, prefix="/api")
 
 
 @app.get("/api/py/helloFastApi")

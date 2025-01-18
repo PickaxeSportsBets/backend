@@ -1,0 +1,9 @@
+
+Email Picks Plan ID: prod_Rba0aBgXhChgoz
+Monthly Price ID: price_1QiMqJIs3FmBtaEC2FHprbKG
+Weekly Price ID: price_1QiMqJIs3FmBtaECNFFaiPIR
+Daily Price ID: price_1QiMqJIs3FmBtaECfoHWZm3h
+
+Software Plan ID: prod_Rba0HpOvUFOs6y
+Monthly Software Price ID: price_1QiMqKIs3FmBtaECt8QXCPjE
+            
