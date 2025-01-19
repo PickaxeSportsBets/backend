@@ -22,8 +22,7 @@ url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 supabase: Client = create_client(url, key)
 # Environment variables
-# STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-STRIPE_WEBHOOK_SECRET = "whsec_a995f57ecaeb5da30073910f415e12e24e2839a3f29504d4980be3d1dc647867"
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
 CLERK_API_BASE = "https://api.clerk.dev/v1"
 
