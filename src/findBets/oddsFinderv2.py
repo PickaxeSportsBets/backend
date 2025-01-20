@@ -414,19 +414,20 @@ class OddsArbitrageFinder:
         return all_odds
 
     async def get_event_odds(self, sport: str, event_id: str) -> List[dict]:
-        """Fetch odds for all markets including regular h2h"""
+        """Fetch odds for additional markets with debug logging"""
         url = f"{self.base_url}/{sport}/events/{event_id}/odds"
         all_odds = []
         
-        # Combine featured and additional markets
-        all_markets = self.featured_markets + self.additional_markets
+        # Add debug logging
+        print(f"\nFetching additional markets for {sport} event {event_id}")
+        print(f"Markets requested: {self.additional_markets}")
         
         tasks = []
         for region, bookmakers in self.regions.items():
             params = {
                 'apiKey': self.api_key,
                 'regions': region,
-                'markets': ','.join(all_markets),  # Request all markets
+                'markets': ','.join(self.additional_markets),
                 'oddsFormat': 'decimal',
                 'includeLinks': 'true'
             }
@@ -436,13 +437,23 @@ class OddsArbitrageFinder:
         
         for data in results:
             if not data:
+                print(f"No data returned for region")
                 continue
                 
             region_bookmakers = data.get('bookmakers', [])
-            filtered_bookmakers = [
-                bm for bm in region_bookmakers
-                if any(book.lower() in bm['title'].lower() for book in bookmakers)
-            ]
+            print(f"Found {len(region_bookmakers)} bookmakers in response")
+            
+            filtered_bookmakers = []
+            for bm in region_bookmakers:
+                print(f"Processing bookmaker: {bm['title']}")
+                print(f"Available markets: {[m['key'] for m in bm['markets']]}")
+                
+                for market in bm['markets']:
+                    if 'alternate' in market['key']:
+                        print(f"Found alternate market: {market['key']}")
+                        
+                filtered_bookmakers.append(bm)
+                
             all_odds.extend(filtered_bookmakers)
         
         return all_odds
@@ -536,9 +547,6 @@ class OddsArbitrageFinder:
                 f"Error processing game {game['id']}: {str(e)}", exc_info=True)
             return [], [], []
 
-
-
-
     def process_markets(self, bookmakers, market_type):
         """Process all market types including quarters, halves, and periods"""
         markets = {}
@@ -597,62 +605,9 @@ class OddsArbitrageFinder:
         return markets
 
     async def find_opportunities(self, game, additional_odds=None):
-        """Enhanced opportunity finding for all market types with improved formatting"""
+        """Enhanced opportunity finding for all market types"""
         opportunities = []
         logger = logging.getLogger('opportunities_finder')
-        
-        def format_market_type(market_type: str, period=None) -> str:
-            """Format market type to be more readable"""
-            period_markers = {
-                'h1': 'First Half',
-                'h2': 'Second Half',
-                'q1': 'Q1',
-                'q2': 'Q2',
-                'q3': 'Q3',
-                'q4': 'Q4',
-                'p1': 'P1',
-                'p2': 'P2',
-                'p3': 'P3'
-            }
-            
-            market_names = {
-                'h2h': 'Moneyline',
-                'spreads': 'Spread',
-                'totals': 'Total',
-                'alternate_spreads': 'Alt Spread',
-                'alternate_totals': 'Alt Total',
-                'team_totals': 'Team Total',
-                'alternate_team_totals': 'Alt Team Total'
-            }
-            
-            # Extract period if present in market type
-            period_str = None
-            for period_key in period_markers.keys():
-                if f"_{period_key}" in market_type:
-                    period_str = period_markers[period_key]
-                    market_type = market_type.split(f"_{period_key}")[0]
-                    break
-            
-            # Get base market name
-            base_market = market_names.get(market_type, market_type)
-            
-            # Combine period and market name
-            if period_str:
-                return f"{period_str} {base_market}"
-            return base_market
-
-        def format_team_name(team_name: str, point: float = None, market_type: str = None) -> str:
-            """Format team name with point value for spreads and totals"""
-            if point is None:
-                return team_name
-                
-            if 'spread' in market_type.lower():
-                point_str = f"+{point}" if point > 0 else str(point)
-                return f"{team_name} ({point_str})"
-            elif 'total' in market_type.lower() or 'prop' in market_type.lower():
-                return f"{team_name} ({point})"
-            else:
-                return team_name
         
         try:
             # Combine and filter bookmakers
@@ -710,14 +665,14 @@ class OddsArbitrageFinder:
                                     if odds1['team'] != odds2['team']:
                                         valid_pair = True
                                         
-                                elif 'spreads' in market_type or 'alternate_spreads' in market_type:
+                                elif 'spreads' in market_type:
                                     if odds1['team'] != odds2['team']:
                                         point1 = float(odds1.get('point', 0) or 0)
                                         point2 = float(odds2.get('point', 0) or 0)
                                         if point1 != 0 and point2 != 0 and abs(point1 + point2) <= 0.1:
                                             valid_pair = True
                                             
-                                elif 'totals' in market_type or 'alternate_totals' in market_type:
+                                elif 'totals' in market_type:
                                     if (odds1.get('point') == odds2.get('point') and
                                         (('OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper()) or
                                         ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper()))):
@@ -750,25 +705,23 @@ class OddsArbitrageFinder:
                                             opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
                                             profit_percentage = round(((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
                                             
-                                            # Format market type and team names
-                                            formatted_market_type = format_market_type(market_type)
-                                            team1_name = format_team_name(odds1['team'], odds1.get('point'), market_type)
-                                            team2_name = format_team_name(odds2['team'], odds2.get('point'), market_type)
+                                            # Include period info in description if available
+                                            period_desc = f" ({odds1.get('period', '').upper()})" if odds1.get('period') else ""
                                             
                                             opportunities.append({
                                                 'sport': game['sport_title'],
                                                 'opportunity_type': opportunity_type,
-                                                'market_type': formatted_market_type,
+                                                'market_type': f"{market_type}{period_desc}",
                                                 'market_point': odds1.get('point'),
                                                 'game': f"{game['home_team']} vs {game['away_team']}",
                                                 'commence_time': game['commence_time'],
-                                                'team1_name': team1_name,
+                                                'team1_name': odds1['team'],
                                                 'team1_book': odds1['bookmaker'],
                                                 'team1_odds': self.decimal_to_american(odds1['price']),
                                                 'team1_point': odds1.get('point'),
                                                 'team1_stake': round(stake1, 2),
                                                 'team1_link': odds1.get('link', ''),
-                                                'team2_name': team2_name,
+                                                'team2_name': odds2['team'],
                                                 'team2_book': odds2['bookmaker'],
                                                 'team2_odds': self.decimal_to_american(odds2['price']),
                                                 'team2_point': odds2.get('point'),
@@ -777,71 +730,79 @@ class OddsArbitrageFinder:
                                                 'hold_percentage': round(hold_percentage, 2),
                                                 'profit_percentage': profit_percentage
                                             })
-
             # Process player props
             try:
+                # Fetch player props data
                 player_props_data = await self.get_player_props(game['sport_key'], game['id'])
                 if player_props_data:
-                    prop_markets = self.process_player_props(player_props_data, game['sport_key'])
-                    
+                    prop_markets = self.process_player_props(
+                        player_props_data, game['sport_key'])
+
                     for market_key, market_odds in prop_markets.items():
                         prop_type = market_odds[0]['prop_type']
                         player_name = market_odds[0]['player']
-                        prop_readable = self.get_prop_description(prop_type, game['sport_key'])
-                        
+                        prop_readable = self.get_prop_description(
+                            prop_type, game['sport_key'])
+
                         # Group odds by outcome
                         odds_by_outcome = {}
                         for odds in market_odds:
                             key = f"{odds['team']}_{odds['bookmaker']}_{odds.get('point', '')}"
                             if key not in odds_by_outcome or odds['price'] > odds_by_outcome[key]['price']:
                                 odds_by_outcome[key] = odds
-                        
+
                         # Find matching pairs for props
                         processed_pairs = set()
                         for key1, odds1 in odds_by_outcome.items():
                             for key2, odds2 in odds_by_outcome.items():
+                                # Skip if same bookmaker
                                 if odds1['bookmaker'] == odds2['bookmaker']:
                                     continue
-                                
+
                                 if key1 != key2 and odds1['point'] == odds2['point']:
+                                    # Validate over/under matching
                                     if 'OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper():
                                         pair_key = tuple(sorted([key1, key2]))
                                         if pair_key not in processed_pairs:
                                             processed_pairs.add(pair_key)
-                                            
-                                            prob1 = self.calculate_implied_probability(odds1['price'])
-                                            prob2 = self.calculate_implied_probability(odds2['price'])
+
+                                            # Calculate probabilities
+                                            prob1 = self.calculate_implied_probability(
+                                                odds1['price'])
+                                            prob2 = self.calculate_implied_probability(
+                                                odds2['price'])
                                             total_prob = prob1 + prob2
-                                            
+
                                             if total_prob <= self.low_hold_threshold:
+                                                # Calculate stakes and percentages
                                                 stake1, stake2 = self.calculate_kelly_percentage(
                                                     prob1, prob2, odds1['price'], odds2['price']
                                                 )
-                                                
-                                                hold_percentage = (total_prob - 1) * 100
+
+                                                hold_percentage = (
+                                                    total_prob - 1) * 100
                                                 opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
-                                                profit_percentage = round(((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
-                                                
-                                                # Format team names with points for props
-                                                team1_name = f"{odds1['team']} ({odds1['point']})"
-                                                team2_name = f"{odds2['team']} ({odds2['point']})"
+                                                profit_percentage = round(
+                                                    ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
+
                                                 prop_description = f"{player_name} - {prop_readable}"
-                                                
+
+                                                # Add prop opportunity to results
                                                 opportunities.append({
                                                     'sport': game['sport_title'],
                                                     'opportunity_type': opportunity_type,
-                                                    'market_type': 'Player Prop',
+                                                    'market_type': 'player_prop',
                                                     'prop_description': prop_description,
                                                     'market_point': odds1['point'],
                                                     'game': f"{game['home_team']} vs {game['away_team']}",
                                                     'commence_time': game['commence_time'],
-                                                    'team1_name': team1_name,
+                                                    'team1_name': f"{odds1['team']} ({odds1['point']})",
                                                     'team1_book': odds1['bookmaker'],
                                                     'team1_odds': self.decimal_to_american(odds1['price']),
                                                     'team1_point': odds1['point'],
                                                     'team1_stake': round(stake1, 2),
                                                     'team1_link': odds1['link'],
-                                                    'team2_name': team2_name,
+                                                    'team2_name': f"{odds2['team']} ({odds2['point']})",
                                                     'team2_book': odds2['bookmaker'],
                                                     'team2_odds': self.decimal_to_american(odds2['price']),
                                                     'team2_point': odds2['point'],
@@ -850,13 +811,15 @@ class OddsArbitrageFinder:
                                                     'hold_percentage': round(hold_percentage, 2),
                                                     'profit_percentage': profit_percentage
                                                 })
-                                            
+
             except Exception as e:
-                logger.error(f"Error processing player props: {str(e)}", exc_info=True)
-                
+                logger.error(
+                    f"Error processing player props: {str(e)}", exc_info=True)
+
         except Exception as e:
-            logger.error(f"Error finding opportunities: {str(e)}", exc_info=True)
-        
+            logger.error(
+                f"Error finding opportunities: {str(e)}", exc_info=True)
+
         return opportunities
 
     # In the find_arbitrage method, replace the spread validation with this improved version:
