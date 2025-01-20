@@ -414,11 +414,14 @@ class OddsArbitrageFinder:
         return all_odds
 
     async def get_event_odds(self, sport: str, event_id: str) -> List[dict]:
-        """Fetch odds for additional markets for a specific event"""
+        """Fetch odds for additional markets with debug logging"""
         url = f"{self.base_url}/{sport}/events/{event_id}/odds"
         all_odds = []
-
-        # Fetch odds for each region concurrently
+        
+        # Add debug logging
+        print(f"\nFetching additional markets for {sport} event {event_id}")
+        print(f"Markets requested: {self.additional_markets}")
+        
         tasks = []
         for region, bookmakers in self.regions.items():
             params = {
@@ -429,20 +432,30 @@ class OddsArbitrageFinder:
                 'includeLinks': 'true'
             }
             tasks.append(self.make_request(url, params))
-
+        
         results = await asyncio.gather(*tasks)
-
+        
         for data in results:
             if not data:
+                print(f"No data returned for region")
                 continue
-
+                
             region_bookmakers = data.get('bookmakers', [])
-            filtered_bookmakers = [
-                bm for bm in region_bookmakers
-                if any(book.lower() in bm['title'].lower() for book in bookmakers)
-            ]
+            print(f"Found {len(region_bookmakers)} bookmakers in response")
+            
+            filtered_bookmakers = []
+            for bm in region_bookmakers:
+                print(f"Processing bookmaker: {bm['title']}")
+                print(f"Available markets: {[m['key'] for m in bm['markets']]}")
+                
+                for market in bm['markets']:
+                    if 'alternate' in market['key']:
+                        print(f"Found alternate market: {market['key']}")
+                        
+                filtered_bookmakers.append(bm)
+                
             all_odds.extend(filtered_bookmakers)
-
+        
         return all_odds
 
     def calculate_implied_probability(self, decimal_odds):
@@ -535,10 +548,9 @@ class OddsArbitrageFinder:
             return [], [], []
 
     def process_markets(self, bookmakers, market_type):
-        """Process markets with proper bookmaker name mapping"""
+        """Process all market types including quarters, halves, and periods"""
         markets = {}
-
-        # Updated bookmaker name mapping to handle API variations
+        
         bookmaker_mapping = {
             'betmgm': 'BetMGM',
             'betrivers': 'BetRivers',
@@ -548,14 +560,29 @@ class OddsArbitrageFinder:
             'pinnacle': 'Pinnacle'
         }
 
+        # Define market type patterns
+        period_patterns = {
+            'quarter': ['q1', 'q2', 'q3', 'q4'],
+            'half': ['h1', 'h2'],
+            'period': ['p1', 'p2', 'p3']
+        }
+
         for bookmaker in bookmakers:
             book_title = bookmaker['title'].lower()
             for market in bookmaker['markets']:
                 if market['key'] == market_type:
                     market_key = market['key']
-                    if any(word in market_type for word in ['spreads', 'totals', 'team_totals']):
-                        period = '_'.join(market_type.split(
-                            '_')[1:]) if '_' in market_type else ''
+                    
+                    # Handle all market types including periods
+                    if any(pattern in market_type for patterns in period_patterns.values() for pattern in patterns):
+                        # Preserve the full market type for period-specific markets
+                        market_key = market_type
+                    elif 'alternate' in market_type:
+                        # Preserve alternate market types
+                        market_key = market_type
+                    elif any(word in market_type for word in ['spreads', 'totals', 'team_totals']):
+                        # Handle basic markets
+                        period = '_'.join(market_type.split('_')[1:]) if '_' in market_type else ''
                         market_key = f"{market['key']}_{period}"
 
                     if market_key not in markets:
@@ -570,64 +597,54 @@ class OddsArbitrageFinder:
                             'team': outcome['name'],
                             'price': outcome.get('price', 0),
                             'point': point,
-                            'link': link
+                            'link': link,
+                            'period': next((period for period_type, periods in period_patterns.items() 
+                                        for period in periods if period in market_type), None)
                         })
 
         return markets
 
     async def find_opportunities(self, game, additional_odds=None):
-        """
-        Find arbitrage and low hold opportunities in a single game.
-
-        This method analyzes both standard markets (moneyline, spreads, totals) and player props
-        to find profitable betting opportunities. It handles async operations properly and includes
-        comprehensive error handling.
-
-        Args:
-            game (dict): Game data including bookmakers and market information
-            additional_odds (list, optional): Additional odds data from other markets
-
-        Returns:
-            list: List of dictionaries containing opportunity information
-        """
+        """Enhanced opportunity finding for all market types"""
         opportunities = []
         logger = logging.getLogger('opportunities_finder')
-
-        # Get all US books from configured regions
-        us_books = [book.lower() for book in self.regions['us']]
-
+        
         try:
             # Combine and filter bookmakers
             all_bookmakers = game['bookmakers']
             if additional_odds:
                 all_bookmakers.extend(additional_odds)
-
-            # Filter to include only configured US bookmakers
+            
+            us_books = [book.lower() for book in self.regions['us']]
             all_bookmakers = [
-                bm for bm in all_bookmakers
+                bm for bm in all_bookmakers 
                 if bm['title'].lower().replace(' bet', '') in [b.replace('bet', '') for b in us_books]
             ]
-
-            # Process standard markets (moneyline, spreads, totals)
-            for market_type in self.featured_markets + self.additional_markets:
+            
+            # Process all market types
+            all_markets = self.featured_markets + self.additional_markets
+            for market_type in all_markets:
                 markets = self.process_markets(all_bookmakers, market_type)
-
+                
                 for market_key, market_odds in markets.items():
                     # Group odds by team and specific line
                     odds_by_team = {}
                     for odds in market_odds:
-                        if 'team_totals' in market_type:
-                            team_name = odds['team'].split(' ')[0]
-                            is_over = 'OVER' in odds['team'].upper()
-                            key = f"{team_name}_{'over' if is_over else 'under'}_{odds.get('point', '')}"
-                        else:
-                            key = f"{odds['team']}_{odds.get('point', '')}"
-
-                        # Keep best odds for each team/line combination
+                        key_components = [odds['team']]
+                        
+                        # Add period to key if it exists
+                        if odds.get('period'):
+                            key_components.append(odds['period'])
+                        
+                        # Add point to key
+                        key_components.append(str(odds.get('point', '')))
+                        
+                        key = '_'.join(key_components)
+                        
                         if key not in odds_by_team or odds['price'] > odds_by_team[key]['price']:
                             odds_by_team[key] = odds
 
-                    # Find matching pairs for arbitrage/low hold opportunities
+                    # Find matching pairs
                     processed_pairs = set()
                     for key1, odds1 in odds_by_team.items():
                         for key2, odds2 in odds_by_team.items():
@@ -635,100 +652,84 @@ class OddsArbitrageFinder:
                                 # Skip if same bookmaker
                                 if odds1['bookmaker'].lower() == odds2['bookmaker'].lower():
                                     continue
-
-                                # Market-specific validation
-                                if 'team_totals' in market_type:
-                                    # Validate team totals matching
-                                    team1, type1, point1 = key1.split('_')
-                                    team2, type2, point2 = key2.split('_')
-
-                                    if team1 != team2:  # Must be same team
-                                        continue
-                                    if not ((type1 == 'over' and type2 == 'under') or
-                                            (type1 == 'under' and type2 == 'over')):
-                                        continue
-                                    if point1 != point2:  # Must be same total
-                                        continue
-
-                                elif 'spreads' in market_type:
-                                    # Validate spread matching
-                                    if odds1['team'] == odds2['team']:
-                                        continue
-
-                                    point1 = float(odds1.get('point', 0) or 0)
-                                    point2 = float(odds2.get('point', 0) or 0)
-
-                                    if point1 == 0 or point2 == 0:
-                                        continue
-
-                                    # Points should be opposite and equal (within small margin)
-                                    if abs(point1 + point2) > 0.1:
-                                        continue
-
-                                elif 'totals' in market_type and 'team_totals' not in market_type:
-                                    # Validate totals matching
-                                    if odds1.get('point') != odds2.get('point'):
-                                        continue
-
-                                    if not (('OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper()) or
-                                            ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper())):
-                                        continue
-
-                                elif 'h2h' in market_type:
-                                    # Validate moneyline matching
-                                    if odds1['team'] == odds2['team']:
-                                        continue
-
-                                # Avoid processing same pair twice
-                                pair_key = tuple(sorted([key1, key2]))
-                                if pair_key in processed_pairs:
+                                
+                                # Validate match based on market type
+                                valid_pair = False
+                                
+                                # Handle period-specific markets
+                                same_period = (odds1.get('period') == odds2.get('period'))
+                                if odds1.get('period') and not same_period:
                                     continue
-                                processed_pairs.add(pair_key)
+                                
+                                if 'h2h' in market_type:
+                                    if odds1['team'] != odds2['team']:
+                                        valid_pair = True
+                                        
+                                elif 'spreads' in market_type:
+                                    if odds1['team'] != odds2['team']:
+                                        point1 = float(odds1.get('point', 0) or 0)
+                                        point2 = float(odds2.get('point', 0) or 0)
+                                        if point1 != 0 and point2 != 0 and abs(point1 + point2) <= 0.1:
+                                            valid_pair = True
+                                            
+                                elif 'totals' in market_type:
+                                    if (odds1.get('point') == odds2.get('point') and
+                                        (('OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper()) or
+                                        ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper()))):
+                                        valid_pair = True
+                                        
+                                elif 'team_totals' in market_type:
+                                    team1 = odds1['team'].split(' ')[0]
+                                    team2 = odds2['team'].split(' ')[0]
+                                    if team1 == team2:  # Same team
+                                        is_over1 = 'OVER' in odds1['team'].upper()
+                                        is_over2 = 'OVER' in odds2['team'].upper()
+                                        if is_over1 != is_over2 and odds1.get('point') == odds2.get('point'):
+                                            valid_pair = True
 
-                                # Calculate probabilities and total probability
-                                prob1 = self.calculate_implied_probability(
-                                    odds1['price'])
-                                prob2 = self.calculate_implied_probability(
-                                    odds2['price'])
-                                total_prob = prob1 + prob2
-
-                                # Check if meets threshold for arbitrage or low hold
-                                if total_prob <= self.low_hold_threshold:
-                                    # Calculate optimal stakes
-                                    stake1, stake2 = self.calculate_kelly_percentage(
-                                        prob1, prob2, odds1['price'], odds2['price']
-                                    )
-
-                                    # Calculate hold and profit percentages
-                                    hold_percentage = (total_prob - 1) * 100
-                                    opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
-                                    profit_percentage = round(
-                                        ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
-
-                                    # Add opportunity to results
-                                    opportunities.append({
-                                        'sport': game['sport_title'],
-                                        'opportunity_type': opportunity_type,
-                                        'market_type': market_type,
-                                        'market_point': odds1.get('point'),
-                                        'game': f"{game['home_team']} vs {game['away_team']}",
-                                        'commence_time': game['commence_time'],
-                                        'team1_name': odds1['team'],
-                                        'team1_book': odds1['bookmaker'],
-                                        'team1_odds': self.decimal_to_american(odds1['price']),
-                                        'team1_point': odds1.get('point'),
-                                        'team1_stake': round(stake1, 2),
-                                        'team1_link': odds1.get('link', ''),
-                                        'team2_name': odds2['team'],
-                                        'team2_book': odds2['bookmaker'],
-                                        'team2_odds': self.decimal_to_american(odds2['price']),
-                                        'team2_point': odds2.get('point'),
-                                        'team2_stake': round(stake2, 2),
-                                        'team2_link': odds2.get('link', ''),
-                                        'hold_percentage': round(hold_percentage, 2),
-                                        'profit_percentage': profit_percentage
-                                    })
-
+                                if valid_pair:
+                                    pair_key = tuple(sorted([key1, key2]))
+                                    if pair_key not in processed_pairs:
+                                        processed_pairs.add(pair_key)
+                                        
+                                        prob1 = self.calculate_implied_probability(odds1['price'])
+                                        prob2 = self.calculate_implied_probability(odds2['price'])
+                                        total_prob = prob1 + prob2
+                                        
+                                        if total_prob <= self.low_hold_threshold:
+                                            stake1, stake2 = self.calculate_kelly_percentage(
+                                                prob1, prob2, odds1['price'], odds2['price']
+                                            )
+                                            
+                                            hold_percentage = (total_prob - 1) * 100
+                                            opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
+                                            profit_percentage = round(((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
+                                            
+                                            # Include period info in description if available
+                                            period_desc = f" ({odds1.get('period', '').upper()})" if odds1.get('period') else ""
+                                            
+                                            opportunities.append({
+                                                'sport': game['sport_title'],
+                                                'opportunity_type': opportunity_type,
+                                                'market_type': f"{market_type}{period_desc}",
+                                                'market_point': odds1.get('point'),
+                                                'game': f"{game['home_team']} vs {game['away_team']}",
+                                                'commence_time': game['commence_time'],
+                                                'team1_name': odds1['team'],
+                                                'team1_book': odds1['bookmaker'],
+                                                'team1_odds': self.decimal_to_american(odds1['price']),
+                                                'team1_point': odds1.get('point'),
+                                                'team1_stake': round(stake1, 2),
+                                                'team1_link': odds1.get('link', ''),
+                                                'team2_name': odds2['team'],
+                                                'team2_book': odds2['bookmaker'],
+                                                'team2_odds': self.decimal_to_american(odds2['price']),
+                                                'team2_point': odds2.get('point'),
+                                                'team2_stake': round(stake2, 2),
+                                                'team2_link': odds2.get('link', ''),
+                                                'hold_percentage': round(hold_percentage, 2),
+                                                'profit_percentage': profit_percentage
+                                            })
             # Process player props
             try:
                 # Fetch player props data
