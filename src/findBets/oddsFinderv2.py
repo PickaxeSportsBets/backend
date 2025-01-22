@@ -5,7 +5,7 @@ import time
 import json
 import logging
 import os
-from betslip import BetslipURLGenerator
+from .betslip import BetslipURLGenerator
 import hashlib
 import aiohttp
 import asyncio

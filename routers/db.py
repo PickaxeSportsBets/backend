@@ -131,6 +131,21 @@ async def update_db():
         }
 
 
+def sanitize_value(value):
+    """Convert None to a default value for double precision columns."""
+    return value if value is not None else 0.0
+
+
+def sanitize_data(data):
+    """Sanitize all values in the data dictionary."""
+    for record in data:
+        for key, value in record.items():
+            # Add any other numeric columns
+            if value is None and key in ['fair_odds', 'ev_percentage', 'odds']:
+                record[key] = sanitize_value(value)
+    return data
+
+
 @router.post("/update_dbV2")
 async def update_db():
     try:
@@ -143,6 +158,7 @@ async def update_db():
         if not arbitrage_df.empty:
             arbitrage_df = arbitrage_df.drop_duplicates(subset=['primary_key'])
             arbitrage_json = json.loads(arbitrage_df.to_json(orient="records"))
+            arbitrage_json = sanitize_data(arbitrage_json)
 
             # Delete all existing records from arbitrage table with a WHERE clause
             supabase.table("arbitrage").delete().neq(
@@ -159,6 +175,7 @@ async def update_db():
         if not plus_ev_df.empty:
             plus_ev_df = plus_ev_df.drop_duplicates(subset=['primary_key'])
             plus_ev_json = json.loads(plus_ev_df.to_json(orient="records"))
+            plus_ev_json = sanitize_data(plus_ev_json)
 
             # Delete all existing records from plus_ev table with a WHERE clause
             supabase.table("plus_ev").delete().neq(
