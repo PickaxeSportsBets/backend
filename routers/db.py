@@ -38,33 +38,7 @@ async def read_root():
     return {"Hello": "World"}
 
 
-@router.post("/refresh_ev")
-async def update_ev():
-    api_key = os.environ.get("ODDS_API_KEY")
-    arbitrage_finder = OddsArbitrageFinder(api_key)
-    data = arbitrage_finder.generate_ev_ONLY()
-    ev_json = json.loads(data.to_json(orient="records"))
-    (supabase.table("plus_ev").upsert(ev_json).execute())
-    (supabase.table("plus_ev")).delete().lt(
-        "commence_time", datetime.now(timezone.utc)).execute()
-
-    return {
-        "code": 200,
-        "status": "Success"
-    }
-
-
-@router.post('/refresh_arbitrage')
-async def updage_arb():
-    api_key = os.environ.get("ODDS_API_KEY")
-    arbitrage_finder = OddsArbitrageFinder(api_key)
-    data = arbitrage_finder.generate_arb_only()
-    arbitrage_json = json.loads(data.to_json(orient="records"))
-    (supabase.table("arbitrage").upsert(arbitrage_json).execute())
-    (supabase.table("arbitrage")).delete().lt(
-        "commence_time", datetime.now(timezone.utc)).execute()
-
-
+# Deprecated
 @router.post("/update_db")
 async def update_db():
     try:
@@ -176,7 +150,7 @@ def sanitize_data(data):
 async def update_db():
     try:
         api_key = os.environ.get("ODDS_API_KEY")
-        arbitrage_finder = OddsArbitrageFinderV2(api_key)
+        arbitrage_finder = OddsArbitrageFinderV3(api_key)
         data = await arbitrage_finder.get_dfs()
 
         # Process arbitrage data
