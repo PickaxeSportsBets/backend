@@ -515,37 +515,35 @@ class OddsArbitrageFinder:
         """Process a single game for opportunities and plus EV bets with fully async handling"""
         try:
             # Create all tasks concurrently
-            additional_odds_task = asyncio.create_task(
-                self.get_event_odds(sport, game['id']))
-            props_task = asyncio.create_task(
-                self.get_player_props(game['sport_key'], game['id']))
-
+            additional_odds_task = asyncio.create_task(self.get_event_odds(sport, game['id']))
+            props_task = asyncio.create_task(self.get_player_props(game['sport_key'], game['id']))
+            
             # Wait for basic data
             additional_odds, props = await asyncio.gather(additional_odds_task, props_task)
-
+            
             # Store player props
             if props:
                 self.all_player_props[game['id']] = {
                     'props': props,
                     'game': game
                 }
-
-            # Create remaining tasks
-            opportunities_task = asyncio.create_task(
-                self.find_opportunities(game, additional_odds))
+            
+            # Create remaining tasks - note the await on find_plus_ev_bets
+            opportunities_task = asyncio.create_task(self.find_opportunities(game, additional_odds))
             odds_data_task = asyncio.create_task(self.collect_all_odds(game))
-
-            # Calculate plus_ev while waiting for other tasks
-            plus_ev_task = asyncio.create_task(self.find_plus_ev_bets(game))
-
-            # Wait for remaining tasks
-            opportunities, odds_data, plus_ev = await asyncio.gather(opportunities_task, odds_data_task, plus_ev_task)
-
+            plus_ev_task = asyncio.create_task(self.find_plus_ev_bets(game))  # Create task for plus_ev
+            
+            # Wait for all tasks
+            opportunities, odds_data, plus_ev = await asyncio.gather(
+                opportunities_task, 
+                odds_data_task,
+                plus_ev_task  # Add plus_ev_task to gather
+            )
+            
             return opportunities, plus_ev, odds_data
-
+            
         except Exception as e:
-            self.logger.error(
-                f"Error processing game {game['id']}: {str(e)}", exc_info=True)
+            self.logger.error(f"Error processing game {game['id']}: {str(e)}", exc_info=True)
             return [], [], []
 
     def process_markets(self, bookmakers, market_type, require_pinnacle=False):
