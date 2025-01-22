@@ -138,11 +138,36 @@ def sanitize_value(value):
 
 def sanitize_data(data):
     """Sanitize all values in the data dictionary."""
+    # Define columns and their expected types
+    integer_columns = ['odds', 'fair_odds']  # these need to be integers
+    # these need to be floats
+    float_columns = ['market_point', 'ev_percentage']
+
     for record in data:
-        for key, value in record.items():
-            # Add any other numeric columns
-            if value is None and key in ['fair_odds', 'ev_percentage', 'odds']:
-                record[key] = sanitize_value(value)
+        # Handle integer columns
+        for key in integer_columns:
+            if key in record:
+                if record[key] is None:
+                    record[key] = 0
+                else:
+                    try:
+                        # First convert to float to handle any decimal values, then to int
+                        record[key] = int(float(str(record[key])))
+                    except (ValueError, TypeError):
+                        record[key] = 0
+
+        # Handle float columns
+        for key in float_columns:
+            if key in record:
+                if record[key] is None:
+                    record[key] = 0.0
+                else:
+                    try:
+                        # Convert to float, handling string inputs
+                        record[key] = float(str(record[key]))
+                    except (ValueError, TypeError):
+                        record[key] = 0.0
+
     return data
 
 
