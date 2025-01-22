@@ -1,11 +1,21 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
-import os
-from dotenv import load_dotenv
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+from dotenv import load_dotenv
 from routers import db_router, stripe_router
-from uvicorn import *
-# from routers import stripe_router
+import jwt
+import os
+from typing import Optional
+from datetime import datetime
+import logging
+from .auth import verify_auth_token, verify_subscription_token, TokenPayload
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     docs_url="/api/py/docs",
@@ -29,10 +39,55 @@ app.add_middleware(
 app.include_router(db_router, prefix="/api/v1/db")
 app.include_router(stripe_router, prefix="/api")
 
+JWT_SECRET = os.getenv("JWT_SECRET")
+security = HTTPBearer()
+
 
 @app.get("/api/py/helloFastApi")
 def hello_fast_api():
     return {"message": "Hello from FastAPI"}
+
+
+@app.get("/protected")
+async def protected_route(token: TokenPayload = Depends(verify_auth_token)):
+    """Route for authenticated users (subscription not required)"""
+    return {
+        "message": "Protected content",
+        "user": token.userId,
+        "isSubscribed": token.isSubscribed,
+        "subscriptionStatus": token.subscriptionStatus
+    }
+
+
+def require_plan(plan_id: str):
+    async def plan_checker(token: TokenPayload = Depends(verify_subscription_token)):
+        if plan_id not in token.activePlans:
+            raise HTTPException(
+                status_code=403,
+                detail=f"This content requires plan: {plan_id}"
+            )
+        return token
+    return plan_checker
+
+
+class SubscriptionResponse(BaseModel):
+    is_subscribed: bool
+    subscription_status: str
+    active_plans: List[str]
+    user_id: str
+
+
+@app.get("/subscription-status", response_model=SubscriptionResponse)
+async def get_subscription_status(token: TokenPayload = Depends(verify_subscription_token)):
+    """
+    Returns the subscription status and plan information for the authenticated user
+    """
+    return SubscriptionResponse(
+        is_subscribed=token.isSubscribed,
+        subscription_status=token.subscriptionStatus,
+        active_plans=token.activePlans,
+        user_id=token.userId
+    )
 
 # uvicorn odds_arbitrage_finder:app --reload
 
