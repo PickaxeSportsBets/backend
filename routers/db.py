@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import json
 from src.findBets import OddsArbitrageFinderV2
+from src.findBets import OddsArbitrageFinderV3
 import logging
 load_dotenv()
 

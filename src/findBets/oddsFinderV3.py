@@ -1,15 +1,16 @@
-import aiohttp
-import asyncio
+import requests
 import pandas as pd
 from datetime import datetime, timezone
 import time
 import json
 import logging
 import os
+import hashlib
+import aiohttp
+import asyncio
 from typing import List, Dict
 from collections import deque
 from datetime import datetime, timedelta
-import requests
 
 
 class RateLimiter:
@@ -1421,27 +1422,49 @@ class OddsArbitrageFinder:
             pinnacle_odds[1]['team']: fair_odds[1]
         }
 
+    async def get_dfs(self):
+        arb_df = await self.generate_arbitrage_table()
+        ev_data = self.all_plus_ev
+        ev_df = pd.DataFrame(ev_data)
+        ev_df['primary_key'] = (ev_df['game'].astype(str) + ev_df['team'].astype(
+            str) + ev_df['market_type'].astype(str) + ev_df['market_point'].astype(str) + ev_df['bookmaker'].astype(
+            str)).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
 
-async def main():
-    # Set pandas display options to show all rows and columns
-    pd.set_option('display.max_rows', None)          # Show all rows
-    pd.set_option('display.max_columns', None)       # Show all columns
-    # Auto-detect display width
-    pd.set_option('display.width', None)
-    # Show full content in each cell
-    pd.set_option('display.max_colwidth', None)
-    api_key = os.getenv('ODDS_API_KEY')
+        ev_df['timestamp'] = datetime.now(
+            timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+        arb_df['timestamp'] = datetime.now(
+            timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+        arb_df['primary_key'] = (arb_df['market_type'].astype(str) + arb_df['game'].astype(str) + arb_df['team1_name'].astype(str)
+                                 + arb_df['team2_name'].astype(str) + arb_df['commence_time'].astype(str) + arb_df[
+                                     'team1_book'].astype(str)
+                                 + arb_df['team2_book'].astype(str) + arb_df['team1_odds'].astype(str) + arb_df[
+                                     'team2_odds'].astype(str) + arb_df['market_type'].astype(str) + arb_df[
+                                         'prop_description'].astype(str)
+                                 ).apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest())
 
-    finder = OddsArbitrageFinder(api_key)
-    arbitrage_table = await finder.generate_arbitrage_table()
+        return arb_df, ev_df
 
-    print(arbitrage_table)
 
-    ev_table = pd.DataFrame(finder.all_plus_ev)
+# async def main():
+#     # Set pandas display options to show all rows and columns
+#     pd.set_option('display.max_rows', None)          # Show all rows
+#     pd.set_option('display.max_columns', None)       # Show all columns
+#     # Auto-detect display width
+#     pd.set_option('display.width', None)
+#     # Show full content in each cell
+#     pd.set_option('display.max_colwidth', None)
+#     api_key = os.getenv('ODDS_API_KEY')
 
-    ev_json = ev_table.to_dict(orient='records')
-    with open('ev.json', 'w') as f:
-        json.dump(ev_json, f, indent=2, default=str)
+#     finder = OddsArbitrageFinder(api_key)
+#     arbitrage_table = await finder.generate_arbitrage_table()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+#     print(arbitrage_table)
+
+#     ev_table = pd.DataFrame(finder.all_plus_ev)
+
+#     ev_json = ev_table.to_dict(orient='records')
+#     with open('ev.json', 'w') as f:
+#         json.dump(ev_json, f, indent=2, default=str)
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
