@@ -1,9 +1,12 @@
 aiohttp==3.11.11
 fastapi==0.115.6
-numpy==2.2.1
+httpx==0.28.1
+numpy==2.2.2
 pandas==2.2.3
+pydantic==2.10.5
+PyJWT==2.10.1
+PyJWT==2.10.1
 python-dotenv==1.0.1
 Requests==2.32.3
-supabase==2.11.0
-uvicorn==0.34.0
 stripe==11.4.1
+uvicorn==0.34.0
