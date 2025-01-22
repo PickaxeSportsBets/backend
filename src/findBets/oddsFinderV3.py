@@ -278,6 +278,61 @@ class OddsArbitrageFinder:
 
         return all_bookmakers
 
+    def get_display_market_type(self, market_type: str, period_info: str = None) -> str:
+        """
+        Convert internal market types to display-friendly formats
+        
+        Args:
+            market_type: The internal market type (e.g., 'h2h', 'h2h_q1', 'spreads')
+            period_info: Optional period information (e.g., 'q1', 'h1')
+            
+        Returns:
+            Display-friendly market type string
+        """
+        # Base market type mapping
+        base_market_map = {
+            'h2h': 'Moneyline',
+            'spreads': 'Spread',
+            'alternate_spreads': 'Alternate Spread',
+            'totals': 'Total',
+            'alternate_totals': 'Alternate Total',
+            'team_totals': 'Team Total'
+        }
+        
+        # Period mapping
+        period_map = {
+            'q1': 'Q1',
+            'q2': 'Q2',
+            'q3': 'Q3',
+            'q4': 'Q4',
+            'h1': 'H1',
+            'h2': 'H2',
+            'p1': 'P1',
+            'p2': 'P2',
+            'p3': 'P3'
+        }
+        
+        # Extract base market and period if present in market_type
+        base_market = market_type
+        embedded_period = None
+        
+        for period in period_map.keys():
+            if f"_{period}" in market_type:
+                base_market = market_type.split(f"_{period}")[0]
+                embedded_period = period
+                break
+        
+        # Get display base market
+        display_market = base_market_map.get(base_market, base_market.replace('_', ' ').title())
+        
+        # Add period info if present (either from parameter or embedded in market_type)
+        period = period_info or embedded_period
+        if period:
+            display_period = period_map.get(period, period.upper())
+            display_market = f"{display_market} {display_period}"
+        
+        return display_market
+
     def process_player_props(self, bookmakers, sport):
         markets = {}
 
@@ -772,13 +827,13 @@ class OddsArbitrageFinder:
                                                 ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
 
                                             # Include period info in description if available
-                                            period_desc = f" ({odds1.get('period', '').upper()})" if odds1.get(
-                                                'period') else ""
+                                            period_desc = "" if not odds1.get('period') else odds1.get('period')
+                                            market_display = self.get_display_market_type(market_type, period_desc)
 
                                             opportunities.append({
                                                 'sport': game['sport_title'],
                                                 'opportunity_type': opportunity_type,
-                                                'market_type': f"{market_type}{period_desc}",
+                                                'market_type': self.get_display_market_type(market_type, odds1.get('period')),
                                                 'market_point': odds1.get('point'),
                                                 'game': f"{game['home_team']} vs {game['away_team']}",
                                                 'commence_time': game['commence_time'],
@@ -957,12 +1012,12 @@ class OddsArbitrageFinder:
                                     stake1, stake2 = self.calculate_kelly_percentage(
                                         prob1, prob2, odds1['price'], odds2['price']
                                     )
+                                    period_desc = "" if not odds1.get('period') else odds1.get('period')
+                                    market_display = self.get_display_market_type(market_type, period_desc)
 
                                     arbitrage_opportunities.append({
                                         'sport': game['sport_title'],
-                                        'market_type': 'alternate_spreads' if 'alternate_spreads' in market_key
-                                                       else 'alternate_totals' if 'alternate_totals' in market_key
-                                                       else market_key.split('_')[0],
+                                        'market_type': self.get_display_market_type(market_type),
                                         'market_point': odds1.get('point'),
                                         'game': f"{game['home_team']} vs {game['away_team']}",
                                         'commence_time': game['commence_time'],
@@ -971,14 +1026,12 @@ class OddsArbitrageFinder:
                                         'team1_odds': self.decimal_to_american(odds1['price']),
                                         'team1_point': odds1.get('point'),
                                         'team1_stake': round(stake1, 2),
-                                        # Add link for first bet
                                         'team1_link': odds1.get('link', ''),
                                         'team2_name': odds2['team'],
                                         'team2_book': odds2['bookmaker'],
                                         'team2_odds': self.decimal_to_american(odds2['price']),
                                         'team2_point': odds2.get('point'),
                                         'team2_stake': round(stake2, 2),
-                                        # Add link for second bet
                                         'team2_link': odds2.get('link', ''),
                                         'profit_percentage': round(((1 / (prob1 + prob2)) - 1) * 100, 2)
                                     })
@@ -1143,11 +1196,13 @@ class OddsArbitrageFinder:
                                     
                                     # Add period info
                                     if odds.get('period'):
-                                        market_type = f"{market_type} ({odds['period'].upper()})"
+                                        # Format market type
+                                        period_info = odds.get('period')
+                                        market_display = self.get_display_market_type(market_type, period_info)
                                     
                                     plus_ev_opportunities.append({
                                         'sport': game['sport_title'],
-                                        'market_type': market_type,
+                                        'market_type': self.get_display_market_type(market_type, odds.get('period')),
                                         'market_point': point if point != '0' else None,
                                         'game': f"{game['home_team']} vs {game['away_team']}",
                                         'commence_time': game['commence_time'],
