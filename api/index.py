@@ -4,13 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
-from routers import db_router, stripe_router
+from routers import db_router, stripe_router, utilites_router
 import jwt
 import os
 from typing import Optional
 from datetime import datetime
 import logging
-from .auth import verify_auth_token, verify_subscription_token, TokenPayload
+from src.auth import verify_auth_token, verify_subscription_token, TokenPayload
 load_dotenv()
 
 # Configure logging
@@ -38,6 +38,7 @@ app.add_middleware(
 
 app.include_router(db_router, prefix="/api/v1/db")
 app.include_router(stripe_router, prefix="/api")
+app.include_router(utilites_router, prefix="/api/v1/utilites")
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 security = HTTPBearer()

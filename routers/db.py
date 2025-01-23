@@ -200,3 +200,23 @@ async def update_db():
             "status": "Error",
             "message": str(e)
         }
+
+
+@router.delete("/delete_old_ev_graph")
+async def delete_old_ev_graph():
+    try:
+        supabase.table("ev_graph").delete().lt(
+            "commence_time", datetime.now(timezone.utc)).execute()
+        return {
+            "code": 200,
+            "status": "Success",
+            "message": "Old ev_graph data deleted successfully"
+        }
+    except Exception as e:
+        # Log the full error for debugging
+        print(f"Error in delete_old_ev_graph: {str(e)}")
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e)
+        }
