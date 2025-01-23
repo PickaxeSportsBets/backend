@@ -1287,7 +1287,7 @@ class OddsArbitrageFinder:
                                     if ev_percentage >= self.ev_threshold:
                                         plus_ev_opportunities.append({
                                             'sport': game['sport_title'],
-                                            'market_type': f"PLAYER PROP - {prop_readable}",
+                                            'market_type': f"Player Prop - {prop_readable}",
                                             'market_point': point,
                                             'game': f"{game['home_team']} vs {game['away_team']}",
                                             'commence_time': game['commence_time'],
