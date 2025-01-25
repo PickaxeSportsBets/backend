@@ -49,28 +49,6 @@ def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 
-@app.get("/protected")
-async def protected_route(token: TokenPayload = Depends(verify_auth_token)):
-    """Route for authenticated users (subscription not required)"""
-    return {
-        "message": "Protected content",
-        "user": token.userId,
-        "isSubscribed": token.isSubscribed,
-        "subscriptionStatus": token.subscriptionStatus
-    }
-
-
-def require_plan(plan_id: str):
-    async def plan_checker(token: TokenPayload = Depends(verify_subscription_token)):
-        if plan_id not in token.activePlans:
-            raise HTTPException(
-                status_code=403,
-                detail=f"This content requires plan: {plan_id}"
-            )
-        return token
-    return plan_checker
-
-
 class SubscriptionResponse(BaseModel):
     is_subscribed: bool
     subscription_status: str
@@ -89,6 +67,17 @@ async def get_subscription_status(token: TokenPayload = Depends(verify_subscript
         active_plans=token.activePlans,
         user_id=token.userId
     )
+
+
+@app.get("/protected")
+async def protected_route(token: TokenPayload = Depends(verify_auth_token)):
+    """Route for authenticated users (subscription not required)"""
+    return {
+        "message": "Protected content",
+        "user": token.userId,
+        "isSubscribed": token.isSubscribed,
+        "subscriptionStatus": token.subscriptionStatus
+    }
 
 # uvicorn odds_arbitrage_finder:app --reload
 

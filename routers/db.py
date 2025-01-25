@@ -8,6 +8,7 @@ import pandas as pd
 import json
 from src.findBets import OddsArbitrageFinderV2
 from src.findBets import OddsArbitrageFinderV3
+from src.findBets import OddsArbitrageFinderV4
 import logging
 load_dotenv()
 
