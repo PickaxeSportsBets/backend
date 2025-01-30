@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 from routers import db_router, stripe_router, utilites_router
+from routers.emailCron import router as email_cron_router, lifespan
 import jwt
 import os
 from typing import Optional
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     docs_url="/api/py/docs",
     openapi_url="/api/py/openapi.json",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -39,7 +41,7 @@ app.add_middleware(
 app.include_router(db_router, prefix="/api/v1/db")
 app.include_router(stripe_router, prefix="/api")
 app.include_router(utilites_router, prefix="/api/v1/utilites")
-
+app.include_router(email_cron_router, prefix="/api/v1/emailCron")
 JWT_SECRET = os.getenv("JWT_SECRET")
 security = HTTPBearer()
 
@@ -79,7 +81,7 @@ async def protected_route(token: TokenPayload = Depends(verify_auth_token)):
         "subscriptionStatus": token.subscriptionStatus
     }
 
-# uvicorn odds_arbitrage_finder:app --reload
+# run: uvicorn api:app --reload
 
 
 # if __name__ == "__main__":
