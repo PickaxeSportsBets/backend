@@ -27,12 +27,15 @@ httpcore==1.0.7
 httpx==0.28.1
 hyperframe==6.1.0
 idna==3.10
+Jinja2==3.1.5
 jsonpath-python==1.0.6
+MarkupSafe==3.0.2
 multidict==6.1.0
 mypy-extensions==1.0.0
 numpy==2.2.2
 packaging==24.2
 pandas==2.2.3
+pillow==11.1.0
 postgrest==0.19.3
 propcache==0.2.1
 psutil==5.9.8

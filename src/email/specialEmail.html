@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Base styles */
+        body {
+            font-family: Monaco, Consolas, "Courier New", monospace;
+            background-color: #1a1e2d;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #1a1e2d;
+            padding: 20px;
+        }
+
+        /* Urgent header styling */
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        .logo {
+            width: 120px;
+            height: auto;
+            margin-bottom: 15px;
+        }
+
+        .urgent-banner {
+            background-color: #2c4c3b;
+            color: #4cd964;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            text-align: center;
+            font-weight: bold;
+            border: 1px solid #4cd964;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin: 15px 0;
+            color: #4cd964;
+            font-weight: 500;
+        }
+
+        .greeting {
+            color: #C6C8CD;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+
+        /* Hot opportunity card */
+        .hot-opportunity {
+            background-color: #2A3247;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 2px solid #4cd964;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hot-opportunity::before {
+            content: "HOT OPPORTUNITY";
+            position: absolute;
+            top: 10px;
+            right: -30px;
+            background-color: #4cd964;
+            color: #1a1e2d;
+            padding: 5px 40px;
+            transform: rotate(45deg);
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .market-type {
+            color: #9f7aea;
+            font-size: 14px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .game-title {
+            font-size: 18px;
+            margin: 12px 0;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .bet-details {
+            margin: 12px 0;
+            display: flex;
+            align-items: center;
+            background-color: #3E4C6F;
+            padding: 12px;
+            border-radius: 6px;
+            flex-wrap: wrap;
+        }
+
+        .book-name {
+            background-color: #2c4c3b;
+            color: #4cd964;
+            padding: 6px 12px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .stake {
+            color: #C6C8CD;
+            font-size: 14px;
+            margin-left: auto;
+        }
+
+        .profit, .ev {
+            color: #4cd964;
+            font-size: 20px;
+            font-weight: bold;
+            margin: 15px 0 10px;
+            text-align: center;
+            padding: 10px;
+            background-color: #2c4c3b;
+            border-radius: 6px;
+        }
+
+        .bet-link {
+            display: block;
+            background-color: #4cd964;
+            color: #1a1e2d;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            margin-top: 12px;
+            font-size: 16px;
+            text-align: center;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+
+        .bet-link:hover {
+            background-color: #3db954;
+        }
+
+        /* Timer section */
+        .timer-section {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #2A3247;
+            border-radius: 8px;
+            border: 1px solid #3E4C6F;
+        }
+
+        .timer-text {
+            color: #C6C8CD;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px 0;
+            color: #C6C8CD;
+            font-size: 12px;
+            margin-top: 30px;
+            border-top: 1px solid #3E4C6F;
+        }
+
+        /* Mobile optimizations */
+        @media screen and (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+
+            .bet-details {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .stake {
+                margin-left: 0;
+                margin-top: 5px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .bet-link {
+                padding: 15px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://vaenhecwoswbqjwachsw.supabase.co/storage/v1/object/sign/resourceImages/logo-removebg.png?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJyZXNvdXJjZUltYWdlcy9sb2dvLXJlbW92ZWJnLnBuZyIsImlhdCI6MTczODI4MDk1OSwiZXhwIjo0ODkxODgwOTU5fQ.Ho_ThsndbkH1v_RY_ag2eXF5XrLmT6tdofUz2eXPqS0" alt="Hourly Bets" class="logo">
+            <div class="urgent-banner">🔥 HIGH-VALUE OPPORTUNITY ALERT 🔥</div>
+            <p class="greeting">Hey {{ name }},</p>
+            <h1>Time-Sensitive Betting Opportunity!</h1>
+        </div>
+
+        <!-- Arbitrage Opportunities -->
+        {% if arbBets %}
+        {% for bet in arbBets %}
+        <div class="hot-opportunity">
+            <div class="market-type">{{ bet.market_type }}</div>
+            <div class="game-title">{{ bet.game }}</div>
+            
+            <div class="bet-details">
+                <span class="book-name">{{ bet.team1_book }}</span>
+                {{ bet.team1_name }} @ {{ bet.team1_odds }}
+                <span class="stake">Stake: {{ "%.1f"|format(bet.team1_stake) }}%</span>
+            </div>
+            <a href="{{ bet.team1_link }}" class="bet-link">Place First Bet →</a>
+
+            <div class="bet-details">
+                <span class="book-name">{{ bet.team2_book }}</span>
+                {{ bet.team2_name }} @ {{ bet.team2_odds }}
+                <span class="stake">Stake: {{ "%.1f"|format(bet.team2_stake) }}%</span>
+            </div>
+            <a href="{{ bet.team2_link }}" class="bet-link">Place Second Bet →</a>
+
+            <p class="profit">🔥 Guaranteed Profit: {{ "%.1f"|format(bet.profit_percentage) }}% 🔥</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <!-- EV Opportunities -->
+        {% if evBets %}
+        {% for bet in evBets %}
+        <div class="hot-opportunity">
+            <div class="market-type">{{ bet.market_type }}</div>
+            <div class="game-title">{{ bet.game }}</div>
+            
+            <div class="bet-details">
+                <span class="book-name">{{ bet.bookmaker }}</span>
+                {{ bet.team }} @ {{ bet.odds }}
+            </div>
+            <a href="{{ bet.link }}" class="bet-link">Place Bet Now →</a>
+
+            <p class="ev">⚡ Expected Value: +{{ "%.1f"|format(bet.ev_percentage) }}% ⚡</p>
+            <p class="stake">Fair Odds: {{ bet.fair_odds }}</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <div class="timer-section">
+            <p class="timer-text">⚠️ These opportunities typically last less than 30 minutes ⚠️</p>
+            <p class="timer-text">Act quickly to secure these odds!</p>
+        </div>
+
+        <div class="footer">
+            <p>© 2024 Hourly Bets</p>
+            <p>This email was sent to {{ email }}</p>
+            <p>You're receiving this alert because exceptional betting value was detected</p>
+            <p>Remember to gamble responsibly and within your means</p>
+        </div>
+    </div>
+</body>
+</html>

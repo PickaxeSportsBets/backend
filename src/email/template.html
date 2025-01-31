@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Reset */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* Base styles */
+        body {
+            font-family: Monaco, Consolas, "Courier New", monospace;
+            background-color: #1a1e2d;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Responsive container */
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #1a1e2d;
+            padding: 20px;
+        }
+
+        /* Header section */
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            margin-bottom: 20px;
+        }
+
+        .logo {
+            width: 150px;
+            height: auto;
+            margin-bottom: 15px;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            margin: 10px 0;
+            color: #4cd964;
+            font-weight: 500;
+        }
+
+        .greeting {
+            color: #C6C8CD;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+
+        /* Cards and sections */
+        .bet-card {
+            background-color: #2A3247;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 12px 0;
+            border: 1px solid #3E4C6F;
+        }
+
+        .profit, .ev {
+            color: #1cb954;
+            font-weight: bold;
+            font-size: 16px;
+            margin: 12px 0 5px;
+        }
+
+        .market-type {
+            color: #9f7aea;
+            font-size: 14px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .game-title {
+            font-size: 16px;
+            margin: 8px 0;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .book-name {
+            background-color: #2c4c3b;
+            color: #4cd964;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 14px;
+        }
+
+        .bet-details {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            background-color: #3E4C6F;
+            padding: 10px;
+            border-radius: 6px;
+            flex-wrap: wrap;
+        }
+
+        .stake {
+            color: #C6C8CD;
+            font-size: 14px;
+            margin-left: auto;
+        }
+
+        /* Mobile optimization for bet details */
+        @media screen and (max-width: 480px) {
+            .bet-details {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .stake {
+                margin-left: 0;
+                margin-top: 5px;
+            }
+        }
+
+        .bet-link {
+            display: inline-block;
+            background-color: #2c4c3b;
+            color: #4cd964;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 14px;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* Section headers */
+        .section-header {
+            margin: 30px 0 15px;
+        }
+
+        .section-header h2 {
+            color: #4cd964;
+            font-size: 18px;
+            font-weight: 500;
+            margin: 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #3E4C6F;
+        }
+
+        /* Info sections */
+        .info-section, .responsible-gambling {
+            background-color: #2A3247;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            border: 1px solid #3E4C6F;
+        }
+
+        .info-section h3, .responsible-gambling h3 {
+            color: #4cd964;
+            margin: 0 0 12px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .info-section p, .responsible-gambling p, .responsible-gambling li {
+            color: #C6C8CD;
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 8px 0;
+        }
+
+        .responsible-gambling ul {
+            margin: 12px 0;
+            padding-left: 20px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 30px 0 15px;
+            color: #C6C8CD;
+            font-size: 12px;
+            margin-top: 30px;
+            border-top: 1px solid #3E4C6F;
+        }
+
+        .footer p {
+            margin: 5px 0;
+        }
+
+        /* Additional mobile optimizations */
+        @media screen and (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header {
+                padding: 15px 0;
+            }
+
+            .logo {
+                width: 120px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .bet-card {
+                padding: 12px;
+            }
+
+            .bet-link {
+                padding: 10px 12px;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://vaenhecwoswbqjwachsw.supabase.co/storage/v1/object/sign/resourceImages/logo-removebg.png?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cmwiOiJyZXNvdXJjZUltYWdlcy9sb2dvLXJlbW92ZWJnLnBuZyIsImlhdCI6MTczODI4MDk1OSwiZXhwIjo0ODkxODgwOTU5fQ.Ho_ThsndbkH1v_RY_ag2eXF5XrLmT6tdofUz2eXPqS0" alt="Hourly Bets" class="logo">
+            <p class="greeting">Hey {{ name }},</p>
+            <h1>Latest Betting Picks 🎯</h1>
+        </div>
+
+        <div class="info-section">
+            <h3>📈 Today's Opportunities</h3>
+            <p><strong>Arbitrage Bets:</strong> Risk-free opportunities across different bookmakers. Place both bets exactly as shown to guarantee the displayed profit.</p>
+            <p><strong>+EV Bets:</strong> Bets with positive expected value based on our calculated true odds. While not guaranteed wins, these provide mathematical edge over time.</p>
+        </div>
+
+        <!-- Arbitrage Section -->
+        {% if arbBets %}
+        <div class="section-header">
+            <h2>🎯 Arbitrage Opportunities</h2>
+        </div>
+        {% for bet in arbBets %}
+        <div class="bet-card">
+            <div class="market-type">
+                {{ bet.market_type }}
+                {% if bet.prop_description %}
+                - {{ bet.prop_description }}
+                {% endif %}
+            </div>
+            <div class="game-title">{{ bet.game }}</div>
+            
+            <div class="bet-details">
+                <span class="book-name">{{ bet.team1_book }}</span>
+                {{ bet.team1_name }} @ {{ bet.team1_odds }}
+                <span class="stake">Stake: {{ "%.1f"|format(bet.team1_stake) }}%</span>
+            </div>
+            <a href="{{ bet.team1_link }}" class="bet-link">Place Bet →</a>
+
+            <div class="bet-details">
+                <span class="book-name">{{ bet.team2_book }}</span>
+                {{ bet.team2_name }} @ {{ bet.team2_odds }}
+                <span class="stake">Stake: {{ "%.1f"|format(bet.team2_stake) }}%</span>
+            </div>
+            <a href="{{ bet.team2_link }}" class="bet-link">Place Bet →</a>
+
+            <p class="profit">Guaranteed Profit: {{ "%.1f"|format(bet.profit_percentage) }}%</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <!-- +EV Section -->
+        {% if evBets %}
+        <div class="section-header">
+            <h2>💰 +EV Opportunities</h2>
+        </div>
+        {% for bet in evBets %}
+        <div class="bet-card">
+            <div class="market-type">{{ bet.market_type }}</div>
+            <div class="game-title">{{ bet.game }}</div>
+            
+            <div class="bet-details">
+                <span class="book-name">{{ bet.bookmaker }}</span>
+                {{ bet.team }} @ {{ bet.odds }}
+            </div>
+            <a href="{{ bet.link }}" class="bet-link">Place Bet →</a>
+
+            <p class="ev">Expected Value: +{{ "%.1f"|format(bet.ev_percentage) }}%</p>
+            <p class="stake">Fair Odds: {{ bet.fair_odds }}</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <div class="responsible-gambling">
+            <h3>🎲 Gamble Responsibly</h3>
+            <p>Set limits, stay in control:</p>
+            <ul>
+                <li>Never bet more than you can afford to lose</li>
+                <li>Keep track of time and money spent</li>
+                <li>Gambling should not interfere with daily responsibilities</li>
+            </ul>
+            <p>Need support? Call 1-800-522-4700 for confidential help 24/7.</p>
+        </div>
+
+        <div class="footer">
+            <p>© 2024 Hourly Bets</p>
+            <p>This email was sent to {{ email }}</p>
+            <p>Market odds refresh hourly and may have changed</p>
+            <p>You must be of legal gambling age in your jurisdiction</p>
+        </div>
+    </div>
+</body>
+</html>
