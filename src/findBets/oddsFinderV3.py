@@ -11,6 +11,7 @@ import asyncio
 from typing import List, Dict
 from collections import deque
 from datetime import datetime, timedelta
+import traceback
 
 
 class RateLimiter:
@@ -89,9 +90,6 @@ class OddsArbitrageFinder:
         self.featured_markets = ['h2h', 'spreads', 'totals']
         self.additional_markets = [
             'alternate_spreads', 'alternate_totals',
-            'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
-            'h2h_h1', 'h2h_h2',
-            'h2h_p1', 'h2h_p2', 'h2h_p3',
             'spreads_q1', 'spreads_q2', 'spreads_q3', 'spreads_q4',
             'spreads_h1', 'spreads_h2',
             'spreads_p1', 'spreads_p2', 'spreads_p3',
@@ -450,11 +448,23 @@ class OddsArbitrageFinder:
         ]
 
     async def get_featured_odds(self, sport: str) -> List[dict]:
-        """Fetch odds for featured markets with multiple regions"""
-        current_time = datetime.now(
-            timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        """Fetch odds for featured markets with debug logging"""
+        logger = logging.getLogger('api_fetcher')
+        logger.setLevel(logging.DEBUG)
+        
+        # Add file handler for API logging
+        fh = logging.FileHandler('api_debug.log')
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+
+        current_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         all_odds = []
         seen_events = set()
+
+        logger.debug(f"\n=== Fetching featured odds for {sport} ===")
+        logger.debug(f"Featured markets requested: {self.featured_markets}")
 
         # Fetch odds for each region concurrently
         tasks = []
@@ -468,17 +478,35 @@ class OddsArbitrageFinder:
                 'commenceTimeFrom': current_time,
                 'includeLinks': 'true'
             }
+            
+            logger.debug(f"\nMaking request for region {region}:")
+            logger.debug(f"URL: {url}")
+            logger.debug(f"Parameters: {params}")
+            
             tasks.append(self.make_request(url, params))
 
         results = await asyncio.gather(*tasks)
-
-        for odds_data in results:
+        
+        for region, odds_data in zip(self.regions.keys(), results):
             if not odds_data:
+                logger.warning(f"No data received for region {region}")
                 continue
-
+                
+            logger.debug(f"\nReceived data for region {region}")
+            logger.debug(f"Number of events: {len(odds_data)}")
+            
             for event in odds_data:
                 event_id = event['id']
                 if event_id not in seen_events:
+                    # Log market keys available in the response
+                    available_markets = set()
+                    for bm in event['bookmakers']:
+                        for market in bm.get('markets', []):
+                            available_markets.add(market['key'])
+                    
+                    logger.debug(f"\nEvent: {event.get('home_team')} vs {event.get('away_team')}")
+                    logger.debug(f"Available markets: {list(available_markets)}")
+                    
                     filtered_bookmakers = [
                         bm for bm in event['bookmakers']
                         if any(book.lower() in bm['title'].lower() for book in self.regions[region])
@@ -487,6 +515,11 @@ class OddsArbitrageFinder:
                     all_odds.append(event)
                     seen_events.add(event_id)
 
+        logger.debug(f"\nTotal events collected: {len(all_odds)}")
+        
+        # Remove the file handler to avoid duplicates
+        logger.removeHandler(fh)
+        
         return all_odds
 
     async def get_event_odds(self, sport: str, event_id: str) -> List[dict]:
@@ -636,16 +669,18 @@ class OddsArbitrageFinder:
             return [], [], []
 
     def process_markets(self, bookmakers, market_type, require_pinnacle=False):
-        """Process markets with expanded derivatives"""
+        """Process markets with improved base market handling"""
         markets = {}
+        logger = logging.getLogger('market_processor')
+
+        # Add more detailed logging
+        logger.debug(f"Starting process_markets for market_type: {market_type}")
+        logger.debug(f"Number of bookmakers: {len(bookmakers)}")
 
         # Define base market types and derivatives
         base_markets = {
             'h2h': [
-                'h2h',
-                'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
-                'h2h_h1', 'h2h_h2',
-                'h2h_p1', 'h2h_p2', 'h2h_p3'
+                'h2h'  # Make sure base h2h is included
             ],
             'spreads': [
                 'spreads',
@@ -660,9 +695,7 @@ class OddsArbitrageFinder:
                 'totals_h1', 'totals_h2',
                 'totals_p1', 'totals_p2', 'totals_p3',
                 'alternate_totals',
-                'team_totals',
-                'team_totals_q1', 'team_totals_q2', 'team_totals_q3', 'team_totals_q4',
-                'team_totals_h1', 'team_totals_h2'
+                'team_totals'
             ]
         }
 
@@ -673,21 +706,28 @@ class OddsArbitrageFinder:
                 period_info = period
                 break
 
+        logger.debug(f"Checking for period info in {market_type}: {period_info}")
+
         for bookmaker in bookmakers:
+            # Log the markets available for this bookmaker
+            logger.debug(f"Processing bookmaker {bookmaker['title']}")
+            logger.debug(f"Available markets: {[m['key'] for m in bookmaker.get('markets', [])]}")
+            
             for market in bookmaker.get('markets', []):
-                # Check if market key belongs to the requested market type family
-                is_matching_market = (
-                    market['key'] == market_type or
-                    (market_type in base_markets and market['key']
-                     in base_markets[market_type])
-                )
+                # Check if market key matches the requested type
+                is_base_market = market['key'] == market_type
+                is_derivative = (market_type in base_markets and 
+                            market['key'] in base_markets[market_type])
+                
+                logger.debug(f"Market {market['key']}: is_base_market={is_base_market}, is_derivative={is_derivative}")
 
-                if is_matching_market:
-                    # For period markets, only match the same period
+                if is_base_market or is_derivative:
+                    # Only apply period filtering for derivative markets, NOT base markets
                     if period_info:
-                        if period_info not in market['key']:
+                        if not is_base_market and period_info not in market['key']:
+                            logger.debug(f"Skipping {market['key']} due to period mismatch")
                             continue
-
+                    
                     market_key = market['key']
                     if market_key not in markets:
                         markets[market_key] = []
@@ -696,49 +736,67 @@ class OddsArbitrageFinder:
                         point = outcome.get('point')
                         link = outcome.get('link', '')
 
-                        # Handle team totals specially
-                        if 'team_totals' in market_key:
-                            # Get team name before Over/Under
-                            team = outcome['name'].split(' ')[0]
-                            # Combine team with Over/Under
-                            name = f"{team} {outcome['name'].split(' ')[-1]}"
-                        else:
-                            name = outcome['name']
-
                         markets[market_key].append({
                             'bookmaker': bookmaker['title'],
-                            'team': name,
+                            'team': outcome['name'],
                             'price': outcome.get('price', 0),
                             'point': point,
                             'link': link,
-                            'period': period_info
+                            'period': period_info if not is_base_market else None
                         })
+                        logger.debug(f"Added outcome for {outcome['name']} to {market_key}")
 
+        logger.debug(f"Final markets found: {list(markets.keys())}")
         return markets
 
     async def find_opportunities(self, game, additional_odds=None):
-        """Enhanced opportunity finding for all market types"""
+        """Enhanced opportunity finding for all market types with comprehensive logging"""
         opportunities = []
         logger = logging.getLogger('opportunities_finder')
 
+        # Configure file handler for logging
+        fh = logging.FileHandler('opportunities.log')
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+        logger.setLevel(logging.DEBUG)
+
         try:
             # Combine and filter bookmakers
+            logger.info(f"\n\n=== Starting new game analysis ===")
+            logger.info(f"Processing game: {game['home_team']} vs {game['away_team']}")
+            
             all_bookmakers = game['bookmakers']
             if additional_odds:
                 all_bookmakers.extend(additional_odds)
+            
+            logger.info(f"Initial bookmaker count: {len(all_bookmakers)}")
 
             us_books = [book.lower() for book in self.regions['us']]
             all_bookmakers = [
                 bm for bm in all_bookmakers
                 if bm['title'].lower().replace(' bet', '') in [b.replace('bet', '') for b in us_books]
             ]
+            logger.info(f"Filtered US bookmakers: {[bm['title'] for bm in all_bookmakers]}")
 
             # Process all market types
             all_markets = self.featured_markets + self.additional_markets
+            logger.info(f"Processing markets: {all_markets}")
+
             for market_type in all_markets:
+                logger.info(f"\nAnalyzing market type: {market_type}")
                 markets = self.process_markets(all_bookmakers, market_type)
+                
+                if not markets:
+                    logger.warning(f"No markets found for {market_type}")
+                    continue
+                    
+                logger.info(f"Found market keys: {list(markets.keys())}")
 
                 for market_key, market_odds in markets.items():
+                    logger.info(f"\nProcessing market: {market_key} with {len(market_odds)} odds entries")
+                    
                     # Group odds by team and specific line
                     odds_by_team = {}
                     for odds in market_odds:
@@ -752,9 +810,11 @@ class OddsArbitrageFinder:
                         key_components.append(str(odds.get('point', '')))
 
                         key = '_'.join(key_components)
-
+                        
                         if key not in odds_by_team or odds['price'] > odds_by_team[key]['price']:
                             odds_by_team[key] = odds
+                            
+                    logger.debug(f"Grouped odds by team: {list(odds_by_team.keys())}")
 
                     # Find matching pairs
                     processed_pairs = set()
@@ -767,52 +827,49 @@ class OddsArbitrageFinder:
 
                                 # Validate match based on market type
                                 valid_pair = False
-
+                                
                                 # Handle period-specific markets
-                                same_period = (
-                                    odds1.get('period') == odds2.get('period'))
+                                same_period = (odds1.get('period') == odds2.get('period'))
                                 if odds1.get('period') and not same_period:
                                     continue
 
                                 if 'h2h' in market_type:
                                     if odds1['team'] != odds2['team']:
                                         valid_pair = True
+                                        logger.debug(f"Found valid h2h pair: {odds1['team']} vs {odds2['team']}")
 
                                 elif 'spreads' in market_type:
                                     if odds1['team'] != odds2['team']:
-                                        point1 = float(
-                                            odds1.get('point', 0) or 0)
-                                        point2 = float(
-                                            odds2.get('point', 0) or 0)
+                                        point1 = float(odds1.get('point', 0) or 0)
+                                        point2 = float(odds2.get('point', 0) or 0)
                                         if point1 != 0 and point2 != 0 and abs(point1 + point2) <= 0.1:
                                             valid_pair = True
+                                            logger.debug(f"Found valid spread pair: {odds1['team']} ({point1}) vs {odds2['team']} ({point2})")
 
                                 elif 'totals' in market_type:
                                     if (odds1.get('point') == odds2.get('point') and
                                         (('OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper()) or
-                                            ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper()))):
+                                        ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper()))):
                                         valid_pair = True
+                                        logger.debug(f"Found valid totals pair: {odds1['team']} vs {odds2['team']}")
 
                                 elif 'team_totals' in market_type:
                                     team1 = odds1['team'].split(' ')[0]
                                     team2 = odds2['team'].split(' ')[0]
                                     if team1 == team2:  # Same team
-                                        is_over1 = 'OVER' in odds1['team'].upper(
-                                        )
-                                        is_over2 = 'OVER' in odds2['team'].upper(
-                                        )
+                                        is_over1 = 'OVER' in odds1['team'].upper()
+                                        is_over2 = 'OVER' in odds2['team'].upper()
                                         if is_over1 != is_over2 and odds1.get('point') == odds2.get('point'):
                                             valid_pair = True
+                                            logger.debug(f"Found valid team totals pair: {odds1['team']} vs {odds2['team']}")
 
                                 if valid_pair:
                                     pair_key = tuple(sorted([key1, key2]))
                                     if pair_key not in processed_pairs:
                                         processed_pairs.add(pair_key)
 
-                                        prob1 = self.calculate_implied_probability(
-                                            odds1['price'])
-                                        prob2 = self.calculate_implied_probability(
-                                            odds2['price'])
+                                        prob1 = self.calculate_implied_probability(odds1['price'])
+                                        prob2 = self.calculate_implied_probability(odds2['price'])
                                         total_prob = prob1 + prob2
 
                                         if total_prob <= self.low_hold_threshold:
@@ -820,20 +877,21 @@ class OddsArbitrageFinder:
                                                 prob1, prob2, odds1['price'], odds2['price']
                                             )
 
-                                            hold_percentage = (
-                                                total_prob - 1) * 100
+                                            hold_percentage = (total_prob - 1) * 100
                                             opportunity_type = 'Arbitrage' if total_prob < 1 else 'Low Hold'
-                                            profit_percentage = round(
-                                                ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
+                                            profit_percentage = round(((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
 
-                                            # Include period info in description if available
                                             period_desc = "" if not odds1.get('period') else odds1.get('period')
                                             market_display = self.get_display_market_type(market_type, period_desc)
+
+                                            logger.info(f"Found opportunity: {opportunity_type} - {market_display}")
+                                            logger.info(f"Books: {odds1['bookmaker']} vs {odds2['bookmaker']}")
+                                            logger.info(f"Hold: {hold_percentage:.2f}%")
 
                                             opportunities.append({
                                                 'sport': game['sport_title'],
                                                 'opportunity_type': opportunity_type,
-                                                'market_type': self.get_display_market_type(market_type, odds1.get('period')),
+                                                'market_type': market_display,
                                                 'market_point': odds1.get('point'),
                                                 'game': f"{game['home_team']} vs {game['away_team']}",
                                                 'commence_time': game['commence_time'],
@@ -1305,295 +1363,6 @@ class OddsArbitrageFinder:
         
         return plus_ev_opportunities
 
-    # async def find_plus_ev_bets(self, game, additional_odds=None):
-    #     """Enhanced plus EV finder with corrected spread handling"""
-    #     plus_ev_opportunities = []
-    #     logger = logging.getLogger('plus_ev_finder')
-        
-    #     try:
-    #         if additional_odds:
-    #             all_bookmakers = game['bookmakers'] + additional_odds
-    #         else:
-    #             all_bookmakers = game['bookmakers']
-            
-    #         # Process market types
-    #         all_markets = []
-    #         for base_market in ['h2h', 'spreads', 'totals']:
-    #             all_markets.append(base_market)
-    #             for period in ['q1', 'q2', 'q3', 'q4', 'h1', 'h2', 'p1', 'p2', 'p3']:
-    #                 all_markets.append(f"{base_market}_{period}")
-    #             if base_market == 'spreads':
-    #                 all_markets.append('alternate_spreads')
-    #             elif base_market == 'totals':
-    #                 all_markets.extend(['alternate_totals', 'team_totals'])
-    #                 for period in ['q1', 'q2', 'q3', 'q4', 'h1', 'h2']:
-    #                     all_markets.append(f"team_totals_{period}")
-            
-    #         for market_type in all_markets:
-    #             markets = self.process_markets(all_bookmakers, market_type, require_pinnacle=True)
-                
-    #             for market_key, market_odds in markets.items():
-    #                 # Group odds by point/line
-    #                 grouped_odds = {}
-    #                 for odds in market_odds:
-    #                     key = str(odds.get('point', '0'))
-    #                     if key not in grouped_odds:
-    #                         grouped_odds[key] = []
-    #                     grouped_odds[key].append(odds)
-                    
-    #                 for point, odds_list in grouped_odds.items():
-    #                     # Find Pinnacle odds for this point
-    #                     pinnacle_odds = [odds for odds in odds_list if odds['bookmaker'].lower() == 'pinnacle']
-    #                     if len(pinnacle_odds) != 2:
-    #                         continue
-                        
-    #                     # Sort Pinnacle odds based on market type
-    #                     if 'totals' in market_type.lower():
-    #                         # For totals, sort by Over/Under
-    #                         pinnacle_odds.sort(key=lambda x: 'OVER' in x['team'].upper(), reverse=True)
-    #                     elif 'spreads' in market_type.lower():
-    #                         # For spreads, organize by matching opposite points
-    #                         point0 = float(pinnacle_odds[0].get('point', 0) or 0)
-    #                         point1 = float(pinnacle_odds[1].get('point', 0) or 0)
-                            
-    #                         # If points aren't opposites, skip this market
-    #                         if abs(point0 + point1) > 0.1:  # Not proper opposites
-    #                             continue
-    #                     else:
-    #                         # For moneyline/other markets, sort by team name
-    #                         pinnacle_odds.sort(key=lambda x: x['team'])
-                        
-    #                     # Convert and devig
-    #                     pinnacle_american = [self.decimal_to_american(odds['price']) for odds in pinnacle_odds]
-    #                     fair_odds = power_devig(pinnacle_american)
-                        
-    #                     # Create market data structure for this specific point/line
-    #                     market_data = {'over': {'odds': {}}, 'under': {'odds': {}}} if 'totals' in market_type.lower() else {}
-                        
-    #                     # Collect all odds for market insight
-    #                     for odds in odds_list:
-    #                         book = odds['bookmaker'].lower()
-    #                         if 'totals' in market_type.lower():
-    #                             side = 'over' if 'OVER' in odds['team'].upper() else 'under'
-    #                             if book not in market_data[side]['odds']:
-    #                                 market_data[side]['odds'][book] = {
-    #                                     'american': self.decimal_to_american(odds['price']),
-    #                                     'decimal': odds['price'],
-    #                                     'link': odds.get('link', '')
-    #                                 }
-    #                         else:
-    #                             team = odds['team'].split(' ')[0] 
-    #                             if team not in market_data:
-    #                                 market_data[team] = {'odds': {}}
-    #                             if book not in market_data[team]['odds']:
-    #                                 market_data[team]['odds'][book] = {
-    #                                     'american': self.decimal_to_american(odds['price']),
-    #                                     'decimal': odds['price'],
-    #                                     'link': odds.get('link', '')
-    #                                 }
-                        
-    #                     # Compare each US book against fair odds
-    #                     for odds in odds_list:
-    #                         if odds['bookmaker'].lower() not in [b.lower() for b in self.regions['us']]:
-    #                             continue
-                            
-    #                         american_odds = self.decimal_to_american(odds['price'])
-                            
-    #                         # Find matching fair odds index
-    #                         if 'totals' in market_type.lower():
-    #                             is_over = 'OVER' in odds['team'].upper()
-    #                             team_index = 0 if is_over else 1
-    #                         elif 'spreads' in market_type.lower() or 'alternate_spreads' in market_type.lower():
-    #                             # For spreads, match team and point with the corresponding Pinnacle spread
-    #                             point = float(odds.get('point', 0) or 0)
-    #                             team = odds['team'].split(' ')[0]
-                                
-    #                             # Find matching Pinnacle spread
-    #                             team_index = -1
-    #                             for i, pin_odds in enumerate(pinnacle_odds):
-    #                                 pin_point = float(pin_odds.get('point', 0) or 0)
-    #                                 pin_team = pin_odds['team'].split(' ')[0]
-                                    
-    #                                 if team.lower() == pin_team.lower() and abs(point - pin_point) < 0.1:
-    #                                     team_index = i
-    #                                     break
-                                
-    #                             if team_index == -1:
-    #                                 continue
-    #                         else:
-    #                             # For moneyline/other markets, match by team name
-    #                             team_index = next(
-    #                                 (i for i, pin_odds in enumerate(pinnacle_odds)
-    #                                 if odds['team'].lower() in pin_odds['team'].lower() or
-    #                                 pin_odds['team'].lower() in odds['team'].lower()),
-    #                                 0
-    #                             )
-                            
-    #                         fair_odd = fair_odds[team_index]
-                            
-    #                         # Check if better than fair odds
-    #                         is_better = (
-    #                             (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or
-    #                             (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or
-    #                             (american_odds > 0 and fair_odd < 0)
-    #                         )
-                            
-    #                         if is_better:
-    #                             if american_odds > 0:
-    #                                 decimal_odds = (american_odds / 100) + 1
-    #                             else:
-    #                                 decimal_odds = (100 / abs(american_odds)) + 1
-                                
-    #                             if fair_odd > 0:
-    #                                 fair_prob = 100 / (fair_odd + 100)
-    #                             else:
-    #                                 fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
-                                
-    #                             ev_percentage = (decimal_odds * fair_prob - 1) * 100
-                                
-    #                             if ev_percentage >= self.ev_threshold:
-    #                                 # Format team name
-    #                                 team_name = odds['team']
-    #                                 if point != '0':
-    #                                     if 'spread' in market_type.lower():
-    #                                         point_str = f"+{point}" if float(point) > 0 else point
-    #                                         team_name = f"{team_name} ({point_str})"
-    #                                     elif 'total' in market_type.lower():
-    #                                         team_name = f"{team_name} ({point})"
-                                    
-    #                                 # Add period info
-    #                                 if odds.get('period'):
-    #                                     # Format market type
-    #                                     period_info = odds.get('period')
-    #                                     market_display = self.get_display_market_type(market_type, period_info)
-                                    
-    #                                 plus_ev_opportunities.append({
-    #                                     'sport': game['sport_title'],
-    #                                     'market_type': self.get_display_market_type(market_type, odds.get('period')),
-    #                                     'market_point': point if point != '0' else None,
-    #                                     'game': f"{game['home_team']} vs {game['away_team']}",
-    #                                     'commence_time': game['commence_time'],
-    #                                     'team': team_name,
-    #                                     'bookmaker': odds['bookmaker'],
-    #                                     'odds': american_odds,
-    #                                     'fair_odds': fair_odd,
-    #                                     'ev_percentage': round(ev_percentage, 2),
-    #                                     'link': odds.get('link', ''),
-    #                                     'market_data': market_data
-    #                                 })
-    #         try:
-    #             if game['id'] in self.all_player_props:
-    #                 player_props = self.all_player_props[game['id']]['props']
-    #                 prop_markets = self.process_player_props(
-    #                     player_props, game['sport_key'])
-
-    #                 for market_key, market_odds in prop_markets.items():
-    #                     if not market_odds:
-    #                         continue
-
-    #                     prop_type = market_odds[0]['prop_type']
-    #                     player_name = market_odds[0]['player']
-    #                     prop_readable = self.get_prop_description(
-    #                         prop_type, game['sport_key'])
-
-    #                     # Group by over/under and point
-    #                     market_data = {}  # Store all market data for this prop
-    #                     fanduel_odds = {'over': {}, 'under': {}}
-
-    #                     # First collect all odds
-    #                     for odds in market_odds:
-    #                         point = str(odds['point'])
-    #                         side = 'over' if 'OVER' in odds['team'].upper(
-    #                         ) else 'under'
-
-    #                         if point not in market_data:
-    #                             market_data[point] = {
-    #                                 'over': {'odds': {}}, 'under': {'odds': {}}}
-
-    #                         book = odds['bookmaker'].lower()
-    #                         market_data[point][side]['odds'][book] = {
-    #                             'american': self.decimal_to_american(odds['price']),
-    #                             'decimal': odds['price'],
-    #                             'link': odds.get('link', '')
-    #                         }
-
-    #                         if book == 'pinnacle':  # Changed from 'pinnacle' to 'fanduel'
-    #                             fanduel_odds[side][point] = odds
-
-    #                     # Check each line where we have both FanDuel odds
-    #                     common_points = set(fanduel_odds['over'].keys()) & set(
-    #                         fanduel_odds['under'].keys())
-    #                     for point in common_points:
-    #                         fd_over = fanduel_odds['over'][point]
-    #                         fd_under = fanduel_odds['under'][point]
-
-    #                         # Calculate fair odds using FanDuel lines
-    #                         fd_over_american = self.decimal_to_american(
-    #                             fd_over['price'])
-    #                         fd_under_american = self.decimal_to_american(
-    #                             fd_under['price'])
-    #                         fair_odds = power_devig(
-    #                             [fd_over_american, fd_under_american])
-
-    #                         # Check other books at this point
-    #                         for odds in market_odds:
-    #                             if odds['point'] != float(point) or odds['bookmaker'].lower() == 'pinnacle':
-    #                                 continue
-
-    #                             if odds['bookmaker'].lower() in [b.lower() for b in self.regions['us']]:
-    #                                 american_odds = self.decimal_to_american(
-    #                                     odds['price'])
-    #                                 is_over = 'OVER' in odds['team'].upper()
-    #                                 fair_odd = fair_odds[0] if is_over else fair_odds[1]
-
-    #                                 # Existing EV calculation logic remains the same
-    #                                 if (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or \
-    #                                     (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or \
-    #                                         (american_odds > 0 and fair_odd < 0):
-
-    #                                     if american_odds > 0:
-    #                                         decimal_odds = (
-    #                                             american_odds / 100) + 1
-    #                                     else:
-    #                                         decimal_odds = (
-    #                                             100 / abs(american_odds)) + 1
-
-    #                                     if fair_odd > 0:
-    #                                         fair_prob = 100 / (fair_odd + 100)
-    #                                     else:
-    #                                         fair_prob = abs(
-    #                                             fair_odd) / (abs(fair_odd) + 100)
-
-    #                                     ev_percentage = (
-    #                                         decimal_odds * fair_prob - 1) * 100
-
-    #                                     if ev_percentage >= self.ev_threshold:
-    #                                         logger.info(
-    #                                             f"Found +EV prop vs Pinnacle: {odds['bookmaker']} {odds['team']} @ {american_odds}")
-    #                                         plus_ev_opportunities.append({
-    #                                             'sport': game['sport_title'],
-    #                                             'market_type': f"Player Prop - {prop_readable}",
-    #                                             'market_point': point,
-    #                                             'game': f"{game['home_team']} vs {game['away_team']}",
-    #                                             'commence_time': game['commence_time'],
-    #                                             'team': f"{player_name} {odds['team']}",
-    #                                             'bookmaker': odds['bookmaker'],
-    #                                             'odds': american_odds,
-    #                                             'fair_odds': fair_odd,
-    #                                             'ev_percentage': round(ev_percentage, 2),
-    #                                             'link': odds.get('link', ''),
-    #                                             'market_data': market_data[point]
-    #                                         })
-
-    #         # except Exception as e:
-    #             logger.error(
-    #                 f"Error processing player props: {str(e)}", exc_info=True)
-                                    
-    #     except Exception as e:
-    #         logger.error(f"Error in find_plus_ev_bets: {str(e)}")
-    #         logger.error(traceback.format_exc())
-        
-    #     return plus_ev_opportunities
 
     async def generate_arbitrage_table(self) -> pd.DataFrame:
         """Main method to generate arbitrage opportunities"""
@@ -1767,26 +1536,26 @@ class OddsArbitrageFinder:
         return arb_df, ev_df
 
 
-# async def main():
-#     # Set pandas display options to show all rows and columns
-#     pd.set_option('display.max_rows', None)          # Show all rows
-#     pd.set_option('display.max_columns', None)       # Show all columns
-#     # Auto-detect display width
-#     pd.set_option('display.width', None)
-#     # Show full content in each cell
-#     pd.set_option('display.max_colwidth', None)
-#     api_key = os.getenv('ODDS_API_KEY')
+async def main():
+    # Set pandas display options to show all rows and columns
+    pd.set_option('display.max_rows', None)          # Show all rows
+    pd.set_option('display.max_columns', None)       # Show all columns
+    # Auto-detect display width
+    pd.set_option('display.width', None)
+    # Show full content in each cell
+    pd.set_option('display.max_colwidth', None)
+    api_key = os.getenv('ODDS_API_KEY')
 
-#     finder = OddsArbitrageFinder(api_key)
-#     arbitrage_table = await finder.generate_arbitrage_table()
+    finder = OddsArbitrageFinder(api_key)
+    arbitrage_table = await finder.generate_arbitrage_table()
 
-#     print(arbitrage_table)
+    arbitrage_table.to_csv('arbitrage.csv')
 
-#     ev_table = pd.DataFrame(finder.all_plus_ev)
+    ev_table = pd.DataFrame(finder.all_plus_ev)
 
-#     ev_json = ev_table.to_dict(orient='records')
-#     with open('ev.json', 'w') as f:
-#         json.dump(ev_json, f, indent=2, default=str)
+    ev_json = ev_table.to_dict(orient='records')
+    with open('ev.json', 'w') as f:
+        json.dump(ev_json, f, indent=2, default=str)
 
-# if __name__ == "__main__":
-#     asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
