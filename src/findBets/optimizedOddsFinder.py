@@ -560,7 +560,8 @@ class OptimizedOddsArbitrageFinder:
                     if 'team_totals' in market_type:
                         team_name = odds['team'].split(' ')[0]
                         is_over = 'OVER' in odds['team'].upper()
-                        key = f"{team_name}_{'over' if is_over else 'under'}_{odds.get('point', '')}"
+                        key = f"{team_name}_{'over' if is_over else 'under'}_{
+                            odds.get('point', '')}"
                     else:
                         key = f"{odds['team']}_{odds.get('point', '')}"
 
@@ -863,11 +864,11 @@ class OptimizedOddsArbitrageFinder:
         return prop_map.get(prop_type, prop_type.replace('_', ' ').title())
 
 
-def main():
-    api_key = os.getenv('ODDS_API_KEY')
-    arbitrage_finder = OptimizedOddsArbitrageFinder(api_key)
-    ev_df, arb_df = arbitrage_finder.run_update_db_async()
+# def main():
+#     api_key = os.getenv('ODDS_API_KEY')
+#     arbitrage_finder = OptimizedOddsArbitrageFinder(api_key)
+#     ev_df, arb_df = arbitrage_finder.run_update_db_async()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
