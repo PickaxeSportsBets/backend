@@ -766,51 +766,47 @@ class OddsArbitrageFinder:
         logger = logging.getLogger('opportunities_finder')
 
         # Configure file handler for logging
-        fh = logging.FileHandler('opportunities.log')
-        fh.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-        logger.setLevel(logging.DEBUG)
+        # fh = logging.FileHandler('opportunities.log')
+        # fh.setLevel(logging.DEBUG)
+        # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # fh.setFormatter(formatter)
+        # logger.addHandler(fh)
+        # logger.setLevel(logging.DEBUG)
 
         try:
-            # Combine and filter bookmakers
-            logger.info(f"\n\n=== Starting new game analysis ===")
-            logger.info(f"Processing game: {
-                        game['home_team']} vs {game['away_team']}")
+            # # Combine and filter bookmakers
+            # logger.info(f"\n\n=== Starting new game analysis ===")
+            # logger.info(f"Processing game: {game['home_team']} vs {game['away_team']}")
 
             all_bookmakers = game['bookmakers']
             if additional_odds:
                 all_bookmakers.extend(additional_odds)
 
-            logger.info(f"Initial bookmaker count: {len(all_bookmakers)}")
+            # logger.info(f"Initial bookmaker count: {len(all_bookmakers)}")
 
             us_books = [book.lower() for book in self.regions['us']]
             all_bookmakers = [
                 bm for bm in all_bookmakers
                 if bm['title'].lower().replace(' bet', '') in [b.replace('bet', '') for b in us_books]
             ]
-            logger.info(f"Filtered US bookmakers: {
-                        [bm['title'] for bm in all_bookmakers]}")
+            # logger.info(f"Filtered US bookmakers: {[bm['title'] for bm in all_bookmakers]}")
 
             # Process all market types
             all_markets = self.featured_markets + self.additional_markets
-            logger.info(f"Processing markets: {all_markets}")
+            # logger.info(f"Processing markets: {all_markets}")
 
             for market_type in all_markets:
-                logger.info(f"\nAnalyzing market type: {market_type}")
+                # logger.info(f"\nAnalyzing market type: {market_type}")
                 markets = self.process_markets(all_bookmakers, market_type)
 
                 if not markets:
-                    logger.warning(f"No markets found for {market_type}")
+                    # logger.warning(f"No markets found for {market_type}")
                     continue
 
-                logger.info(f"Found market keys: {list(markets.keys())}")
+                # logger.info(f"Found market keys: {list(markets.keys())}")
 
                 for market_key, market_odds in markets.items():
-                    logger.info(f"\nProcessing market: {market_key} with {
-                                len(market_odds)} odds entries")
+                    # logger.info(f"\nProcessing market: {market_key} with {len(market_odds)} odds entries")
 
                     # Group odds by team and specific line
                     odds_by_team = {}
@@ -829,8 +825,7 @@ class OddsArbitrageFinder:
                         if key not in odds_by_team or odds['price'] > odds_by_team[key]['price']:
                             odds_by_team[key] = odds
 
-                    logger.debug(f"Grouped odds by team: {
-                                 list(odds_by_team.keys())}")
+                    # logger.debug(f"Grouped odds by team: {list(odds_by_team.keys())}")
 
                     # Find matching pairs
                     processed_pairs = set()
@@ -853,8 +848,7 @@ class OddsArbitrageFinder:
                                 if 'h2h' in market_type:
                                     if odds1['team'] != odds2['team']:
                                         valid_pair = True
-                                        logger.debug(f"Found valid h2h pair: {
-                                                     odds1['team']} vs {odds2['team']}")
+                                        # logger.debug(f"Found valid h2h pair: {odds1['team']} vs {odds2['team']}")
 
                                 elif 'spreads' in market_type:
                                     if odds1['team'] != odds2['team']:
@@ -864,16 +858,14 @@ class OddsArbitrageFinder:
                                             odds2.get('point', 0) or 0)
                                         if point1 != 0 and point2 != 0 and abs(point1 + point2) <= 0.1:
                                             valid_pair = True
-                                            logger.debug(f"Found valid spread pair: {odds1['team']} ({
-                                                         point1}) vs {odds2['team']} ({point2})")
+                                            # logger.debug(f"Found valid spread pair: {odds1['team']} ({point1}) vs {odds2['team']} ({point2})")
 
                                 elif 'totals' in market_type:
                                     if (odds1.get('point') == odds2.get('point') and
                                         (('OVER' in odds1['team'].upper() and 'UNDER' in odds2['team'].upper()) or
                                             ('UNDER' in odds1['team'].upper() and 'OVER' in odds2['team'].upper()))):
                                         valid_pair = True
-                                        logger.debug(f"Found valid totals pair: {
-                                                     odds1['team']} vs {odds2['team']}")
+                                        # logger.debug(f"Found valid totals pair: {odds1['team']} vs {odds2['team']}")
 
                                 elif 'team_totals' in market_type:
                                     team1 = odds1['team'].split(' ')[0]
@@ -885,8 +877,7 @@ class OddsArbitrageFinder:
                                         )
                                         if is_over1 != is_over2 and odds1.get('point') == odds2.get('point'):
                                             valid_pair = True
-                                            logger.debug(f"Found valid team totals pair: {
-                                                         odds1['team']} vs {odds2['team']}")
+                                            # logger.debug(f"Found valid team totals pair: {odds1['team']} vs {odds2['team']}")
 
                                 if valid_pair:
                                     pair_key = tuple(sorted([key1, key2]))
@@ -915,12 +906,9 @@ class OddsArbitrageFinder:
                                             market_display = self.get_display_market_type(
                                                 market_type, period_desc)
 
-                                            logger.info(f"Found opportunity: {
-                                                        opportunity_type} - {market_display}")
-                                            logger.info(f"Books: {odds1['bookmaker']} vs {
-                                                        odds2['bookmaker']}")
-                                            logger.info(
-                                                f"Hold: {hold_percentage:.2f}%")
+                                            # logger.info(f"Found opportunity: {opportunity_type} - {market_display}")
+                                            # logger.info(f"Books: {odds1['bookmaker']} vs {odds2['bookmaker']}")
+                                            # logger.info(f"Hold: {hold_percentage:.2f}%")
 
                                             opportunities.append({
                                                 'sport': game['sport_title'],
