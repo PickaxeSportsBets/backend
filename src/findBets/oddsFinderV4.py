@@ -312,7 +312,8 @@ class OddsArbitrageFinder:
                     for outcome in market['outcomes']:
                         player_name = outcome.get('description', 'Unknown')
                         prop_type = market['key'].replace('player_', '')
-                        market_key = f"{market['key']}_{player_name}_{outcome.get('point', '')}"
+                        market_key = f"{market['key']}_{
+                            player_name}_{outcome.get('point', '')}"
 
                         if market_key not in markets:
                             markets[market_key] = []
@@ -899,7 +900,8 @@ class OddsArbitrageFinder:
                         # Group odds by outcome
                         odds_by_outcome = {}
                         for odds in market_odds:
-                            key = f"{odds['team']}_{odds['bookmaker']}_{odds.get('point', '')}"
+                            key = f"{odds['team']}_{odds['bookmaker']}_{
+                                odds.get('point', '')}"
                             if key not in odds_by_outcome or odds['price'] > odds_by_outcome[key]['price']:
                                 odds_by_outcome[key] = odds
 
@@ -937,7 +939,8 @@ class OddsArbitrageFinder:
                                                 profit_percentage = round(
                                                     ((1 / total_prob) - 1) * 100, 2) if total_prob < 1 else 0
 
-                                                prop_description = f"{player_name} - {prop_readable}"
+                                                prop_description = f"{
+                                                    player_name} - {prop_readable}"
 
                                                 # Add prop opportunity to results
                                                 opportunities.append({
@@ -1090,7 +1093,8 @@ class OddsArbitrageFinder:
                 if is_period and not period:
                     return []
 
-                actual_market = f"{market_type}_{period}" if is_period else market_type
+                actual_market = f"{market_type}_{
+                    period}" if is_period else market_type
                 markets = self.process_markets(
                     all_bookmakers, actual_market, require_pinnacle=True)
                 opportunities = []
@@ -1214,7 +1218,8 @@ class OddsArbitrageFinder:
                                     display_market = actual_market.replace(
                                         '_', ' ').upper()
                                     if is_period:
-                                        display_market = f"{market_type.upper()}({period.upper()})"
+                                        display_market = f"{
+                                            market_type.upper()}({period.upper()})"
 
                                     # Format team name with point if needed
                                     team_name = odds['team']
@@ -1529,19 +1534,19 @@ class OddsArbitrageFinder:
         return ev_df, arb_df
 
 
-async def main():
-    # Set pandas display options to show all rows and columns
-    # pd.set_option('display.max_rows', None)          # Show all rows
-    # pd.set_option('display.max_columns', None)       # Show all columns
-    # # Auto-detect display width
-    # pd.set_option('display.width', None)
-    # # Show full content in each cell
-    # pd.set_option('display.max_colwidth', None)
-    api_key = os.environ.get("ODDS_API_KEY")
+# async def main():
+#     # Set pandas display options to show all rows and columns
+#     # pd.set_option('display.max_rows', None)          # Show all rows
+#     # pd.set_option('display.max_columns', None)       # Show all columns
+#     # # Auto-detect display width
+#     # pd.set_option('display.width', None)
+#     # # Show full content in each cell
+#     # pd.set_option('display.max_colwidth', None)
+#     api_key = os.environ.get("ODDS_API_KEY")
 
-    finder = OddsArbitrageFinder(api_key)
-    arb_df, ev_df = await finder.get_dfs()
-    print(arb_df)
-    print(ev_df)
-if __name__ == "__main__":
-    asyncio.run(main())
+#     finder = OddsArbitrageFinder(api_key)
+#     arb_df, ev_df = await finder.get_dfs()
+#     print(arb_df)
+#     print(ev_df)
+# if __name__ == "__main__":
+#     asyncio.run(main())
