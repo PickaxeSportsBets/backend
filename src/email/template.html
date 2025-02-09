@@ -258,19 +258,19 @@
             
             <div class="bet-details">
                 <span class="book-name">{{ bet.team1_book }}</span>
-                {{ bet.team1_name }} @ {{ bet.team1_odds }}
-                <span class="stake">Stake: {{ "%.1f"|format(bet.team1_stake) }}%</span>
+                {{ bet.team1_name }} @ {{ "%.2f"|format(bet.team1_odds) }}
+                <span class="stake">(Stake: {{ "%.1f"|format(bet.team1_stake) }}%)</span>
             </div>
             <a href="{{ bet.team1_link }}" class="bet-link">Place Bet →</a>
 
             <div class="bet-details">
                 <span class="book-name">{{ bet.team2_book }}</span>
-                {{ bet.team2_name }} @ {{ bet.team2_odds }}
-                <span class="stake">Stake: {{ "%.1f"|format(bet.team2_stake) }}%</span>
+                {{ bet.team2_name }} @ {{ "%.2f"|format(bet.team2_odds) }}
+                <span class="stake">(Stake: {{ "%.1f"|format(bet.team2_stake) }}%)</span>
             </div>
             <a href="{{ bet.team2_link }}" class="bet-link">Place Bet →</a>
 
-            <p class="profit">Guaranteed Profit: {{ "%.1f"|format(bet.profit_percentage) }}%</p>
+            <p class="profit">Profit: {{ "%.1f"|format(bet.profit_percentage) }}%</p>
         </div>
         {% endfor %}
         {% endif %}
@@ -287,12 +287,12 @@
             
             <div class="bet-details">
                 <span class="book-name">{{ bet.bookmaker }}</span>
-                {{ bet.team }} @ {{ bet.odds }}
+                {{ bet.team }} @ {{ "%.2f"|format(bet.odds) }}
             </div>
             <a href="{{ bet.link }}" class="bet-link">Place Bet →</a>
 
             <p class="ev">Expected Value: +{{ "%.1f"|format(bet.ev_percentage) }}%</p>
-            <p class="stake">Fair Odds: {{ bet.fair_odds }}</p>
+            <p class="stake">Fair Odds: {{ "%.2f"|format(bet.fair_odds) }}</p>
         </div>
         {% endfor %}
         {% endif %}

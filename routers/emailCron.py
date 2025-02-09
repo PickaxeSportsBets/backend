@@ -33,30 +33,26 @@ template_env = jinja2.Environment(loader=template_loader)
 
 def get_email_subject(arb_bets: list, ev_bets: list) -> str:
     # Get best profits for subject line
-    best_arb = max((bet["profit_percentage"] for bet in arb_bets), default=0)
-    best_ev = max((bet["ev_percentage"] for bet in ev_bets), default=0)
-
-    # Convert to float first to avoid string formatting issues
-    best_arb_float = float(best_arb)
-    best_ev_float = float(best_ev)
+    best_arb = max((float(bet["profit_percentage"])
+                   for bet in arb_bets), default=0)
+    best_ev = max((float(bet["ev_percentage"]) for bet in ev_bets), default=0)
 
     # Base options for variety
-    if best_arb_float > 2 and best_ev_float > 4:
+    if best_arb > 2 and best_ev > 4:
         subject = "🔥 Hot Alert! {:.1f}% Arb + {:.1f}% EV".format(
-            best_arb_float, best_ev_float)
-    elif best_arb_float > 2:
-        subject = "💰 Profit Alert! {:.1f}% Risk-Free Arb".format(
-            best_arb_float)
-    elif best_ev_float > 4:
-        subject = "⚡ Value Alert! {:.1f}% EV Play".format(best_ev_float)
+            best_arb, best_ev)
+    elif best_arb > 2:
+        subject = "💰 Profit Alert! {:.1f}% Risk-Free Arb".format(best_arb)
+    elif best_ev > 4:
+        subject = "⚡ Value Alert! {:.1f}% EV Play".format(best_ev)
     else:
         subject = "🎯 Fresh Betting Picks"
 
     # Add secondary opportunities
-    if best_arb_float > 0 and "Arb" not in subject:
-        subject += " | {:.1f}% Arb".format(best_arb_float)
-    if best_ev_float > 0 and "EV" not in subject:
-        subject += " | {:.1f}% EV".format(best_ev_float)
+    if best_arb > 0 and "Arb" not in subject:
+        subject += " | {:.1f}% Arb".format(best_arb)
+    if best_ev > 0 and "EV" not in subject:
+        subject += " | {:.1f}% EV".format(best_ev)
 
     return subject.strip(" |")
 
@@ -128,13 +124,26 @@ async def send_daily_email():
             evBets = supabase.table("plus_ev").select(
                 "*").order('ev_percentage', desc=True).limit(5).execute()
 
-            # Format links in arbBets
+            # Format numeric values in arbBets
             for bet in arbBets.data:
+                bet['profit_percentage'] = float(bet['profit_percentage'])
+                bet['team1_stake'] = float(
+                    bet['team1_stake']) if bet.get('team1_stake') else 0
+                bet['team2_stake'] = float(
+                    bet['team2_stake']) if bet.get('team2_stake') else 0
+                bet['team1_odds'] = float(
+                    bet['team1_odds']) if bet.get('team1_odds') else 0
+                bet['team2_odds'] = float(
+                    bet['team2_odds']) if bet.get('team2_odds') else 0
                 bet['team1_link'] = format_bet_link(bet.get('team1_link', ''))
                 bet['team2_link'] = format_bet_link(bet.get('team2_link', ''))
 
-            # Format links in evBets
+            # Format numeric values in evBets
             for bet in evBets.data:
+                bet['ev_percentage'] = float(bet['ev_percentage'])
+                bet['odds'] = float(bet['odds']) if bet.get('odds') else 0
+                bet['fair_odds'] = float(
+                    bet['fair_odds']) if bet.get('fair_odds') else 0
                 bet['link'] = format_bet_link(bet.get('link', ''))
 
             logger.info("Sending hourly email")
