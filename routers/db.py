@@ -9,6 +9,8 @@ import json
 from src.findBets import OddsArbitrageFinderV2
 from src.findBets import OddsArbitrageFinderV3
 from src.findBets import OddsArbitrageFinderV4
+from src.findBets import OddsArbitrageFinderV5
+from src.findBets import get_all_data
 import logging
 load_dotenv()
 
@@ -196,6 +198,25 @@ async def update_db():
     except Exception as e:
         # Log the full error for debugging
         print(f"Error in update_db: {str(e)}")
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e)
+        }
+
+
+@router.post("/update_dbV3")
+async def update_db():
+    try:
+        data = await get_all_data()
+        print(data)
+        return {
+            "code": 200,
+            "status": "Success",
+            "message": "Database updated successfully"
+        }
+    except Exception as e:
+        print(f"Error in update_dbV3: {str(e)}")
         return {
             "code": 500,
             "status": "Error",
