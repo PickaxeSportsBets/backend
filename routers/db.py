@@ -209,7 +209,33 @@ async def update_db():
 async def update_db():
     try:
         data = await get_all_data()
-        print(data)
+        raw_df = data[0]
+        arb_df = data[1]
+        ev_df = data[2]
+        raw_json = json.loads(raw_df.to_json(orient="records"))
+        arb_json = json.loads(arb_df.to_json(orient="records"))
+        ev_json = json.loads(ev_df.to_json(orient="records"))
+
+        # Delete all existing records from arbitrage table with a WHERE clause
+        supabase.table("arbitrage").delete().neq(
+            'primary_key', 'no_match').execute()
+        supabase.table("plus_ev").delete().neq(
+            'primary_key', 'no_match').execute()
+        # supabase.table("raw_odds").delete().neq(
+        #     'primary_key', 'no_match').execute()
+
+        # Insert new records in batches
+        batch_size = 100
+        # for i in range(0, len(raw_json), batch_size):
+        #     batch = raw_json[i:i + batch_size]
+        #     supabase.table("raw_odds").insert(batch).execute()
+        for i in range(0, len(arb_json), batch_size):
+            batch = arb_json[i:i + batch_size]
+            supabase.table("arbitrage").insert(batch).execute()
+        for i in range(0, len(ev_json), batch_size):
+            batch = ev_json[i:i + batch_size]
+            supabase.table("plus_ev").insert(batch).execute()
+
         return {
             "code": 200,
             "status": "Success",

@@ -1098,6 +1098,36 @@ async def get_all_data() -> tuple:
             arb_df, ev_df = await finder.get_dfs()
             raw_df = finder.raw_data
 
+            # Convert timestamps to ISO format
+            current_time = datetime.now(timezone.utc).isoformat()
+
+            if not raw_df.empty:
+                raw_df['timestamp'] = current_time
+            if not arb_df.empty:
+                arb_df['timestamp'] = current_time
+            if not ev_df.empty:
+                ev_df['timestamp'] = current_time
+
+            # Convert DataFrames to JSON-serializable format
+            raw_df = raw_df.astype(object).where(pd.notnull(raw_df), None)
+            arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
+            ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
+
+            # Convert to records
+            raw_data = raw_df.to_dict(orient='records')
+            arb_data = arb_df.to_dict(orient='records')
+            ev_data = ev_df.to_dict(orient='records')
+
+            # Convert numpy types to native Python types
+            raw_data = json.loads(json.dumps(raw_data, default=str))
+            arb_data = json.loads(json.dumps(arb_data, default=str))
+            ev_data = json.loads(json.dumps(ev_data, default=str))
+
+            # Convert back to DataFrames
+            raw_df = pd.DataFrame(raw_data)
+            arb_df = pd.DataFrame(arb_data)
+            ev_df = pd.DataFrame(ev_data)
+
             # Log the results
             logger.info(f"Found {len(raw_df)} raw odds entries")
             logger.info(
