@@ -532,13 +532,13 @@ class OddsArbitrageFinder:
                 ).apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest())
 
             # Save raw data
-            if not self.raw_data.empty:
-                raw_data_path = os.path.join(
-                    self.output_dir, "raw_odds_data.csv")
-                self.raw_data.to_csv(raw_data_path, index=False)
-                self.logger.info(f"Saved raw odds data to {raw_data_path}")
+            # if not self.raw_data.empty:
+                # raw_data_path = os.path.join(
+                #     self.output_dir, "raw_odds_data.csv")
+                # self.raw_data.to_csv(raw_data_path, index=False)
+                # self.logger.info(f"Saved raw odds data to {raw_data_path}")
 
-            # Convert timestamps to ISO format
+                # Convert timestamps to ISO format
             current_time = datetime.now(timezone.utc).isoformat()
 
             if not self.raw_data.empty:
@@ -1162,6 +1162,15 @@ async def get_all_data() -> tuple:
 
             if not raw_df.empty:
                 raw_df['timestamp'] = current_time
+                raw_df["bet_key"] = raw_df.apply(
+                    lambda row: hashlib.sha256(
+                        (str(row['game']) +
+                         str(row['team']) +
+                         str(row['market_type']) +
+                         str(row['market_point']) +
+                         str(row['bookmaker'])).encode('utf-8')
+                    ).hexdigest(), axis=1)
+                raw_df.to_csv("raw_odds_data.csv", index=False)
 
             if not arb_df.empty:
                 arb_df['timestamp'] = current_time
@@ -1202,53 +1211,55 @@ async def get_all_data() -> tuple:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
-# async def main():
-#     """Main entry point for the application"""
-#     # Set up basic logging
-#     logging.basicConfig(level=logging.INFO)
-#     logger = logging.getLogger("main")
+# https://sportsbook.fanatics.com/
 
-#     try:
-#         logger.info("Starting odds finder application...")
+async def main():
+    """Main entry point for the application"""
+    # Set up basic logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("main")
 
-#         # Get all data
-#         raw_df, arb_df, ev_df = await get_all_data()
+    try:
+        logger.info("Starting odds finder application...")
 
-#         # Print summary of findings
-#         print("\n=== Raw Odds Data ===")
-#         if not raw_df.empty:
-#             print(f"Total games: {len(raw_df)}")
-#             print("\nSample of raw odds:")
-#             print(raw_df.head())
-#         else:
-#             print("No raw odds data found")
+        # Get all data
+        raw_df, arb_df, ev_df = await get_all_data()
 
-#         print("\n=== Arbitrage Opportunities ===")
-#         if not arb_df.empty:
-#             print(f"Total opportunities: {len(arb_df)}")
-#             print("\nTop arbitrage opportunities:")
-#             print(arb_df.sort_values('profit_percentage', ascending=False).head())
-#         else:
-#             print("No arbitrage opportunities found")
+        # Print summary of findings
+        print("\n=== Raw Odds Data ===")
+        if not raw_df.empty:
+            print(f"Total games: {len(raw_df)}")
+            print("\nSample of raw odds:")
+            print(raw_df.head())
+        else:
+            print("No raw odds data found")
 
-#         print("\n=== +EV Opportunities ===")
-#         if not ev_df.empty:
-#             print(f"Total opportunities: {len(ev_df)}")
-#             print("\nTop EV opportunities:")
-#             print(ev_df.sort_values('ev_percentage', ascending=False).head())
-#             # ev_df.to_csv('ev_opportunities.csv', index=False)
-#         else:
-#             print("No +EV opportunities found")
+        print("\n=== Arbitrage Opportunities ===")
+        if not arb_df.empty:
+            print(f"Total opportunities: {len(arb_df)}")
+            print("\nTop arbitrage opportunities:")
+            print(arb_df.sort_values('profit_percentage', ascending=False).head())
+        else:
+            print("No arbitrage opportunities found")
 
-#         return 0
+        print("\n=== +EV Opportunities ===")
+        if not ev_df.empty:
+            print(f"Total opportunities: {len(ev_df)}")
+            print("\nTop EV opportunities:")
+            print(ev_df.sort_values('ev_percentage', ascending=False).head())
+            # ev_df.to_csv('ev_opportunities.csv', index=False)
+        else:
+            print("No +EV opportunities found")
 
-#     except KeyboardInterrupt:
-#         logger.info("Process interrupted by user")
-#         return 130
-#     except Exception as e:
-#         logger.error(f"Error running odds finder: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         return 1
+        return 0
 
-# if __name__ == "__main__":
-#     sys.exit(asyncio.run(main()))
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user")
+        return 130
+    except Exception as e:
+        logger.error(f"Error running odds finder: {str(e)}")
+        logger.error(traceback.format_exc())
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
