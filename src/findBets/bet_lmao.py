@@ -1178,8 +1178,14 @@ async def get_all_data() -> tuple:
 
             if not arb_df.empty:
                 arb_df['timestamp'] = current_time
+                arb_df.loc[(arb_df["team1_link"].isnull() | (arb_df["team1_link"] == "")) & arb_df["team1_book"].str.contains(
+                    "Fanatics"), "team1_link"] = "https://sportsbook.fanatics.com/"
+                arb_df.loc[(arb_df["team2_link"].isnull() | (arb_df["team2_link"] == "")) & arb_df["team2_book"].str.contains(
+                    "Fanatics"), "team2_link"] = "https://sportsbook.fanatics.com/"
             if not ev_df.empty:
                 ev_df['timestamp'] = current_time
+                ev_df.loc[(ev_df["link"].isnull() | (ev_df["link"] == "")) & ev_df["bookmaker"].str.contains(
+                    "Fanatics"), "link"] = "https://sportsbook.fanatics.com/"
 
             # Convert DataFrames to JSON-serializable format
             raw_df = raw_df.astype(object).where(pd.notnull(raw_df), None)
