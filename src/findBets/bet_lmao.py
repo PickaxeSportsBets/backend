@@ -424,11 +424,9 @@ class OddsArbitrageFinder:
         params = {
             "apiKey": self.api_key,
             "bookmakers": ",".join(self.bookmakers),
-            # Only request base markets
             "markets": ",".join(self.featured_markets),
             "oddsFormat": "decimal",
             "commenceTimeFrom": current_time,
-            # "regions": self.state,  # Add regions parameter
             "includeLinks": "true",
         }
 
@@ -436,14 +434,41 @@ class OddsArbitrageFinder:
         if data:
             # Store raw data in DataFrame
             if len(data) > 0:
-                df = pd.json_normalize(data)
-                df['sport'] = sport
-                df['timestamp'] = datetime.now(timezone.utc)
-                if self.raw_data.empty:
-                    self.raw_data = df
-                else:
-                    self.raw_data = pd.concat(
-                        [self.raw_data, df], ignore_index=True)
+                for event in data:
+                    for bookmaker in event.get('bookmakers', []):
+                        for market in bookmaker.get('markets', []):
+                            for outcome in market.get('outcomes', []):
+                                row = {
+                                    'id': event.get('id'),
+                                    'sport_key': event.get('sport_key'),
+                                    'sport_title': event.get('sport_title'),
+                                    'commence_time': event.get('commence_time'),
+                                    'home_team': event.get('home_team'),
+                                    'away_team': event.get('away_team'),
+                                    'sport': sport,
+                                    'timestamp': datetime.now(timezone.utc),
+                                    'game': f"{event.get('home_team')} vs {event.get('away_team')}",
+                                    'team': outcome.get('name'),
+                                    'market_type': market.get('key'),
+                                    'market_point': outcome.get('point'),
+                                    'bookmaker': bookmaker.get('title'),
+                                    'odds': self.decimal_to_american(outcome.get('price', 0)),
+                                    'link': bookmaker.get('link', '')
+                                }
+
+                                row['bet_key'] = hashlib.sha256(
+                                    (str(row['game']) +
+                                     str(row['team']) +
+                                     str(row['market_type']) +
+                                     str(row['market_point']) +
+                                     str(row['bookmaker'])).encode('utf-8')
+                                ).hexdigest()
+
+                                if self.raw_data.empty:
+                                    self.raw_data = pd.DataFrame([row])
+                                else:
+                                    self.raw_data = pd.concat(
+                                        [self.raw_data, pd.DataFrame([row])], ignore_index=True)
 
                 # Log bookmaker information
                 bookmakers_found = set()
@@ -478,13 +503,15 @@ class OddsArbitrageFinder:
 
             if not ev_df.empty:
                 self.logger.info(f"Found {len(ev_df)} +EV opportunities")
-                ev_df["primary_key"] = (
-                    ev_df["game"].astype(str)
-                    + ev_df["team"].astype(str)
-                    + ev_df["market_type"].astype(str)
-                    + ev_df["market_point"].astype(str)
-                    + ev_df["bookmaker"].astype(str)
-                ).apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest())
+                # Ensure consistent primary key generation between raw and EV data
+                ev_df["primary_key"] = ev_df.apply(
+                    lambda row: hashlib.sha256(
+                        (str(row['game']) +
+                         str(row['team']) +
+                         str(row['market_type']) +
+                         str(row['market_point']) +
+                         str(row['bookmaker'])).encode('utf-8')
+                    ).hexdigest(), axis=1)
                 ev_df["timestamp"] = datetime.now(timezone.utc)
             else:
                 self.logger.info("No +EV opportunities found")
@@ -510,6 +537,38 @@ class OddsArbitrageFinder:
                     self.output_dir, "raw_odds_data.csv")
                 self.raw_data.to_csv(raw_data_path, index=False)
                 self.logger.info(f"Saved raw odds data to {raw_data_path}")
+
+            # Convert timestamps to ISO format
+            current_time = datetime.now(timezone.utc).isoformat()
+
+            if not self.raw_data.empty:
+                self.raw_data['timestamp'] = current_time
+
+            if not arb_df.empty:
+                arb_df['timestamp'] = current_time
+            if not ev_df.empty:
+                ev_df['timestamp'] = current_time
+
+            # Convert DataFrames to JSON-serializable format
+            raw_df = self.raw_data.astype(object).where(
+                pd.notnull(self.raw_data), None)
+            arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
+            ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
+
+            # Convert to records
+            raw_data = raw_df.to_dict(orient='records')
+            arb_data = arb_df.to_dict(orient='records')
+            ev_data = ev_df.to_dict(orient='records')
+
+            # Convert numpy types to native Python types
+            raw_data = json.loads(json.dumps(raw_data, default=str))
+            arb_data = json.loads(json.dumps(arb_data, default=str))
+            ev_data = json.loads(json.dumps(ev_data, default=str))
+
+            # Convert back to DataFrames
+            raw_df = pd.DataFrame(raw_data)
+            arb_df = pd.DataFrame(arb_data)
+            ev_df = pd.DataFrame(ev_data)
 
             self.logger.info("Analysis complete")
             return arb_df, ev_df
@@ -1103,6 +1162,7 @@ async def get_all_data() -> tuple:
 
             if not raw_df.empty:
                 raw_df['timestamp'] = current_time
+
             if not arb_df.empty:
                 arb_df['timestamp'] = current_time
             if not ev_df.empty:
@@ -1176,6 +1236,7 @@ async def get_all_data() -> tuple:
 #             print(f"Total opportunities: {len(ev_df)}")
 #             print("\nTop EV opportunities:")
 #             print(ev_df.sort_values('ev_percentage', ascending=False).head())
+#             # ev_df.to_csv('ev_opportunities.csv', index=False)
 #         else:
 #             print("No +EV opportunities found")
 
