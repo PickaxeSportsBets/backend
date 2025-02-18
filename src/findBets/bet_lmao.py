@@ -815,6 +815,10 @@ class OddsArbitrageFinder:
                                             # Determine if it's over/under or team1/team2
                                             if "totals" in market_type:
                                                 side = "over" if "OVER" in outcome["name"].upper() else "under"
+                                            elif "spreads" in market_type:
+                                                # For spreads, team with positive spread goes in "over", negative in "under"
+                                                outcome_point = float(outcome.get("point", 0) or 0)
+                                                side = "over" if outcome_point > 0 else "under"
                                             else:
                                                 side = "over" if outcome["name"] == odds1["team"] else "under"
                                                 
