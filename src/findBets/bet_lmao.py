@@ -192,7 +192,7 @@ class OddsArbitrageFinder:
             "draftkings",
             "fanduel", 
             "espnbet",
-            "hardrock_bet",
+            "hardrockbet",
             "betmgm",
             # "williamhill_us",
             "betrivers",
