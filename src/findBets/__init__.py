@@ -3,3 +3,5 @@ from .betslip import BetslipURLGenerator
 from .oddsFinderv2 import OddsArbitrageFinder as OddsArbitrageFinderV2
 from .oddsFinderV3 import OddsArbitrageFinder as OddsArbitrageFinderV3
 from .oddsFinderV4 import OddsArbitrageFinder as OddsArbitrageFinderV4
+from .bet_lmao import OddsArbitrageFinder as OddsArbitrageFinderV5
+from .bet_lmao import get_all_data

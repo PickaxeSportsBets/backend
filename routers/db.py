@@ -9,6 +9,8 @@ import json
 from src.findBets import OddsArbitrageFinderV2
 from src.findBets import OddsArbitrageFinderV3
 from src.findBets import OddsArbitrageFinderV4
+from src.findBets import OddsArbitrageFinderV5
+from src.findBets import get_all_data
 import logging
 load_dotenv()
 
@@ -196,6 +198,47 @@ async def update_db():
     except Exception as e:
         # Log the full error for debugging
         print(f"Error in update_db: {str(e)}")
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e)
+        }
+
+
+@router.post("/update_dbV3")
+async def update_db():
+    try:
+        data = await get_all_data()
+        raw_df = data[0]
+        arb_df = data[1]
+        ev_df = data[2]
+        raw_json = json.loads(raw_df.to_json(orient="records"))
+        arb_json = json.loads(arb_df.to_json(orient="records"))
+        ev_json = json.loads(ev_df.to_json(orient="records"))
+
+        # Delete all existing records from arbitrage table with a WHERE clause
+        supabase.table("arbitrage").delete().neq(
+            'primary_key', 'no_match').execute()
+        supabase.table("plus_ev").delete().neq(
+            'primary_key', 'no_match').execute()
+        batch_size = 100
+        for i in range(0, len(arb_json), batch_size):
+            batch = arb_json[i:i + batch_size]
+            supabase.table("arbitrage").insert(batch).execute()
+        for i in range(0, len(ev_json), batch_size):
+            batch = ev_json[i:i + batch_size]
+            supabase.table("plus_ev").insert(batch).execute()
+        for i in range(0, len(raw_json), batch_size):
+            batch = raw_json[i:i + batch_size]
+            supabase.table("ev_graph").insert(batch).execute()
+
+        return {
+            "code": 200,
+            "status": "Success",
+            "message": "Database updated successfully"
+        }
+    except Exception as e:
+        print(f"Error in update_dbV3: {str(e)}")
         return {
             "code": 500,
             "status": "Error",
