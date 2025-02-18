@@ -610,13 +610,23 @@ class OddsArbitrageFinder:
                 # Execute all tasks concurrently
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Process results
+                # Process results and store in raw_data
                 for result in results:
                     if isinstance(result, Exception):
                         self.logger.error(f"Error fetching odds: {str(result)}")
                         continue
-                    if result and "bookmakers" in result:
-                        all_odds.extend(result["bookmakers"])
+                    if result:
+                        # Store additional odds data in raw_data
+                        df = pd.json_normalize(result)
+                        df['sport'] = game['sport_key']
+                        df['timestamp'] = datetime.now(timezone.utc)
+                        if self.raw_data.empty:
+                            self.raw_data = df
+                        else:
+                            self.raw_data = pd.concat([self.raw_data, df], ignore_index=True)
+                        
+                        if "bookmakers" in result:
+                            all_odds.extend(result["bookmakers"])
 
             # Process opportunities
             opportunities = await self.find_opportunities(game, all_odds) if all_odds else []
