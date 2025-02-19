@@ -124,24 +124,27 @@ class OddsArbitrageFinder:
 
         # Player props configuration
         self.player_props = {
+            "NFL": [
+                "player_pass_yds",
+                "player_pass_tds",
+                "player_pass_completions",
+                "player_rush_attempts",
+                "player_receptions",
+                "player_reception_yds",
+            ],
             "NBA": [
                 "player_points",
                 "player_rebounds",
                 "player_assists",
                 "player_threes",
-                "player_blocks",
-                "player_steals",
+                "player_points_rebounds_assists",
             ],
-            "NFL": [
-                "player_pass_tds",
-                "player_pass_yards",
-                "player_rush_yards",
-                "player_receptions",
-                "player_reception_yards",
-                "player_touchdowns",
+            "NHL": [
+                "player_points",
+                "player_shots_on_goal",
+                "player_goals",
+                "player_assists",
             ],
-            "NHL": ["player_points", "player_assists", "player_shots"],
-            "MLB": ["player_hits", "player_strikeouts", "player_home_runs"],
         }
 
         # Sports to track
