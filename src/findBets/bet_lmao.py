@@ -1536,54 +1536,54 @@ async def get_all_data() -> tuple:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
-# async def main():
-#     """Main entry point for the application"""
-#     # Set up basic logging
-#     logging.basicConfig(level=logging.INFO)
-#     logger = logging.getLogger("main")
+async def main():
+    """Main entry point for the application"""
+    # Set up basic logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("main")
 
-#     try:
-#         logger.info("Starting odds finder application...")
+    try:
+        logger.info("Starting odds finder application...")
 
-#         # Get all data
-#         raw_df, arb_df, ev_df = await get_all_data()
+        # Get all data
+        raw_df, arb_df, ev_df = await get_all_data()
 
-#         # Print summary of findings
-#         print("\n=== Raw Odds Data ===")
-#         if not raw_df.empty:
-#             print(f"Total games: {len(raw_df)}")
-#             print("\nSample of raw odds:")
-#             print(raw_df.head())
-#         else:
-#             print("No raw odds data found")
+        # Print summary of findings
+        print("\n=== Raw Odds Data ===")
+        if not raw_df.empty:
+            print(f"Total games: {len(raw_df)}")
+            print("\nSample of raw odds:")
+            print(raw_df.head())
+        else:
+            print("No raw odds data found")
 
-#         print("\n=== Arbitrage Opportunities ===")
-#         if not arb_df.empty:
-#             print(f"Total opportunities: {len(arb_df)}")
-#             print("\nTop arbitrage opportunities:")
-#             print(arb_df.sort_values("profit_percentage", ascending=False).head())
-#         else:
-#             print("No arbitrage opportunities found")
+        print("\n=== Arbitrage Opportunities ===")
+        if not arb_df.empty:
+            print(f"Total opportunities: {len(arb_df)}")
+            print("\nTop arbitrage opportunities:")
+            print(arb_df.sort_values("profit_percentage", ascending=False).head())
+        else:
+            print("No arbitrage opportunities found")
 
-#         print("\n=== +EV Opportunities ===")
-#         if not ev_df.empty:
-#             print(f"Total opportunities: {len(ev_df)}")
-#             print("\nTop EV opportunities:")
-#             print(ev_df.sort_values("ev_percentage", ascending=False).head())
-#             ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
-#         else:
-#             print("No +EV opportunities found")
+        print("\n=== +EV Opportunities ===")
+        if not ev_df.empty:
+            print(f"Total opportunities: {len(ev_df)}")
+            print("\nTop EV opportunities:")
+            print(ev_df.sort_values("ev_percentage", ascending=False).head())
+            ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
+        else:
+            print("No +EV opportunities found")
 
-#         return 0
+        return 0
 
-#     except KeyboardInterrupt:
-#         logger.info("Process interrupted by user")
-#         return 130
-#     except Exception as e:
-#         logger.error(f"Error running odds finder: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         return 1
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user")
+        return 130
+    except Exception as e:
+        logger.error(f"Error running odds finder: {str(e)}")
+        logger.error(traceback.format_exc())
+        return 1
 
 
-# if __name__ == "__main__":
-#     sys.exit(asyncio.run(main()))
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
