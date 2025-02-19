@@ -1420,7 +1420,7 @@ class OddsArbitrageFinder:
                                                     "market_point": point if point != "0" else None,
                                                     "game": f"{game['home_team']} vs {game['away_team']}",
                                                     "commence_time": game["commence_time"],
-                                                    "team": f"{player} {outcome['name']}",
+                                                    "team": outcome["name"],
                                                     "bookmaker": bm["title"],
                                                     "odds": american_odds,
                                                     "fair_odds": fair_odd,
