@@ -291,7 +291,8 @@ class OddsArbitrageFinder:
 
     async def get_player_props(self, sport: str, event_id: str) -> List[dict]:
         """Fetch player props for a specific event"""
-        sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
+        sport_name = sport.upper().split(
+            "_")[1] if "_" in sport else sport.upper()
         logger = logging.getLogger("player_props")
 
         if sport_name not in self.player_props:
@@ -306,7 +307,7 @@ class OddsArbitrageFinder:
         all_bookmakers = []
 
         for i in range(0, len(prop_markets), batch_size):
-            market_batch = prop_markets[i : i + batch_size]
+            market_batch = prop_markets[i: i + batch_size]
             logger.debug(f"Fetching market batch: {market_batch}")
 
             url = f"{self.base_url}/{sport}/events/{event_id}/odds"
@@ -353,7 +354,8 @@ class OddsArbitrageFinder:
         """Process player props data"""
         logger = logging.getLogger("player_props_processor")
         markets = {}
-        sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
+        sport_name = sport.upper().split(
+            "_")[1] if "_" in sport else sport.upper()
         prop_markets = self.player_props.get(sport_name, [])
 
         logger.info(f"Processing player props for {sport_name}")
@@ -425,7 +427,8 @@ class OddsArbitrageFinder:
     async def get_featured_odds(self, sport: str) -> List[dict]:
         """Fetch odds for featured markets"""
         logger = logging.getLogger("featured_odds")
-        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_time = datetime.now(
+            timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{self.base_url}/{sport}/odds"
 
         params = {
@@ -489,7 +492,8 @@ class OddsArbitrageFinder:
                     for bm in event.get("bookmakers", []):
                         bookmakers_found.add(bm.get("title", "").lower())
 
-                logger.info(f"Found data from bookmakers: {sorted(bookmakers_found)}")
+                logger.info(
+                    f"Found data from bookmakers: {sorted(bookmakers_found)}")
                 missing_books = (
                     set(b.lower() for b in self.bookmakers) - bookmakers_found
                 )
@@ -508,7 +512,8 @@ class OddsArbitrageFinder:
             # Generate arbitrage table
             self.logger.info("Generating arbitrage opportunities table...")
             arb_df = await self.generate_arbitrage_table()
-            self.logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            self.logger.info(
+                f"Found {len(arb_df)} arbitrage/low hold opportunities")
 
             # Create EV DataFrame
             self.logger.info("Processing +EV opportunities...")
@@ -567,7 +572,8 @@ class OddsArbitrageFinder:
                 ev_df["timestamp"] = current_time
 
             # Convert DataFrames to JSON-serializable format
-            raw_df = self.raw_data.astype(object).where(pd.notnull(self.raw_data), None)
+            raw_df = self.raw_data.astype(object).where(
+                pd.notnull(self.raw_data), None)
             arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
             ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
 
@@ -611,13 +617,16 @@ class OddsArbitrageFinder:
                     self.logger.info(
                         f"Received data for {sport}: {len(featured_odds)} games"
                     )
-                    all_featured_odds.extend([(sport, game) for game in featured_odds])
+                    all_featured_odds.extend(
+                        [(sport, game) for game in featured_odds])
                 else:
                     self.logger.warning(f"No odds data received for {sport}")
 
             # Process all games concurrently
-            self.logger.info(f"Processing {len(all_featured_odds)} total games...")
-            game_tasks = [self.process_game(game) for _, game in all_featured_odds]
+            self.logger.info(
+                f"Processing {len(all_featured_odds)} total games...")
+            game_tasks = [self.process_game(game)
+                          for _, game in all_featured_odds]
             all_results = await asyncio.gather(*game_tasks)
 
             # Collect results
@@ -726,7 +735,8 @@ class OddsArbitrageFinder:
                 # Process results and store in raw_data
                 for result in results:
                     if isinstance(result, Exception):
-                        self.logger.error(f"Error fetching odds: {str(result)}")
+                        self.logger.error(
+                            f"Error fetching odds: {str(result)}")
                         continue
                     if result:
                         # Process each event's bookmakers and markets
@@ -995,7 +1005,8 @@ class OddsArbitrageFinder:
                                             elif "spreads" in market_type:
                                                 # For spreads, team with positive spread goes in "over", negative in "under"
                                                 outcome_point = float(
-                                                    outcome.get("point", 0) or 0
+                                                    outcome.get(
+                                                        "point", 0) or 0
                                                 )
                                                 side = (
                                                     "over"
@@ -1073,7 +1084,8 @@ class OddsArbitrageFinder:
             return opportunities
 
         except Exception as e:
-            logger.error(f"Error finding opportunities: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error finding opportunities: {str(e)}", exc_info=True)
             return []
 
     async def find_plus_ev_bets(
@@ -1170,7 +1182,8 @@ class OddsArbitrageFinder:
                                     continue
 
                                 decimal_odds = outcome["price"]
-                                american_odds = self.decimal_to_american(decimal_odds)
+                                american_odds = self.decimal_to_american(
+                                    decimal_odds)
 
                                 side = (
                                     "over"
@@ -1208,7 +1221,8 @@ class OddsArbitrageFinder:
 
                                 # Match the outcome to the correct fair odds
                                 if "totals" in market_type:
-                                    idx = 0 if "OVER" in outcome["name"].upper() else 1
+                                    idx = 0 if "OVER" in outcome["name"].upper(
+                                    ) else 1
                                 else:
                                     idx = (
                                         0
@@ -1236,9 +1250,11 @@ class OddsArbitrageFinder:
                                 if is_better:
                                     # Calculate EV
                                     if american_odds > 0:
-                                        decimal_odds = (american_odds / 100) + 1
+                                        decimal_odds = (
+                                            american_odds / 100) + 1
                                     else:
-                                        decimal_odds = (100 / abs(american_odds)) + 1
+                                        decimal_odds = (
+                                            100 / abs(american_odds)) + 1
 
                                     if fair_odd > 0:
                                         fair_prob = 100 / (fair_odd + 100)
@@ -1247,7 +1263,8 @@ class OddsArbitrageFinder:
                                             abs(fair_odd) + 100
                                         )
 
-                                    ev_percentage = (decimal_odds * fair_prob - 1) * 100
+                                    ev_percentage = (
+                                        decimal_odds * fair_prob - 1) * 100
 
                                     if ev_percentage >= self.ev_threshold:
                                         plus_ev_opportunities.append({
@@ -1268,10 +1285,11 @@ class OddsArbitrageFinder:
                                         })
 
             # Process player props
-            sport_name = game["sport_key"].upper().split("_")[1] if "_" in game["sport_key"] else game["sport_key"].upper()
+            sport_name = game["sport_key"].upper().split(
+                "_")[1] if "_" in game["sport_key"] else game["sport_key"].upper()
             if sport_name in self.player_props:
                 prop_markets = self.player_props[sport_name]
-                
+
                 # Get Pinnacle player prop odds
                 pinnacle_prop_odds = {}
                 for bm in all_bookmakers:
@@ -1284,7 +1302,7 @@ class OddsArbitrageFinder:
                                 market_key = market["key"]
                                 if market_key not in pinnacle_prop_odds:
                                     pinnacle_prop_odds[market_key] = []
-                                
+
                                 for outcome in market["outcomes"]:
                                     pinnacle_prop_odds[market_key].append({
                                         "player": outcome.get("description", "Unknown"),
@@ -1310,11 +1328,13 @@ class OddsArbitrageFinder:
                             continue
 
                         # Devig Pinnacle odds
-                        pin_american = [odds["american"] for odds in pin_odds_list]
+                        pin_american = [odds["american"]
+                                        for odds in pin_odds_list]
                         fair_odds = power_devig(pin_american)
 
                         # Collect all bookmaker odds for this prop
-                        market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
+                        market_data = {"over": {"odds": {}},
+                                       "under": {"odds": {}}}
 
                         for bm in all_bookmakers:
                             if not isinstance(bm, dict) or "title" not in bm:
@@ -1334,9 +1354,11 @@ class OddsArbitrageFinder:
                                         continue
 
                                     decimal_odds = outcome["price"]
-                                    american_odds = self.decimal_to_american(decimal_odds)
+                                    american_odds = self.decimal_to_american(
+                                        decimal_odds)
 
-                                    side = "over" if "OVER" in outcome["name"].upper() else "under"
+                                    side = "over" if "OVER" in outcome["name"].upper(
+                                    ) else "under"
                                     market_data[side]["odds"][bm_title] = {
                                         "american": american_odds,
                                         "decimal": decimal_odds,
@@ -1350,20 +1372,24 @@ class OddsArbitrageFinder:
 
                                     for outcome in market["outcomes"]:
                                         if (
-                                            outcome.get("description") != player
+                                            outcome.get(
+                                                "description") != player
                                             or str(outcome.get("point", "0")) != point
                                         ):
                                             continue
 
-                                        american_odds = self.decimal_to_american(outcome["price"])
+                                        american_odds = self.decimal_to_american(
+                                            outcome["price"])
 
                                         # Match the outcome to the correct fair odds
-                                        idx = 0 if "OVER" in outcome["name"].upper() else 1
+                                        idx = 0 if "OVER" in outcome["name"].upper(
+                                        ) else 1
                                         fair_odd = fair_odds[idx]
 
                                         # Check if odds are +EV
                                         is_better = (
-                                            (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
+                                            (american_odds > 0 and fair_odd >
+                                             0 and american_odds > fair_odd)
                                             or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
                                             or (american_odds > 0 and fair_odd < 0)
                                         )
@@ -1371,16 +1397,21 @@ class OddsArbitrageFinder:
                                         if is_better:
                                             # Calculate EV
                                             if american_odds > 0:
-                                                decimal_odds = (american_odds / 100) + 1
+                                                decimal_odds = (
+                                                    american_odds / 100) + 1
                                             else:
-                                                decimal_odds = (100 / abs(american_odds)) + 1
+                                                decimal_odds = (
+                                                    100 / abs(american_odds)) + 1
 
                                             if fair_odd > 0:
-                                                fair_prob = 100 / (fair_odd + 100)
+                                                fair_prob = 100 / \
+                                                    (fair_odd + 100)
                                             else:
-                                                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
+                                                fair_prob = abs(
+                                                    fair_odd) / (abs(fair_odd) + 100)
 
-                                            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+                                            ev_percentage = (
+                                                decimal_odds * fair_prob - 1) * 100
 
                                             if ev_percentage >= self.ev_threshold:
                                                 plus_ev_opportunities.append({
@@ -1448,12 +1479,14 @@ async def get_all_data() -> tuple:
             if not arb_df.empty:
                 arb_df["timestamp"] = current_time
                 arb_df.loc[
-                    (arb_df["team1_link"].isnull() | (arb_df["team1_link"] == ""))
+                    (arb_df["team1_link"].isnull()
+                     | (arb_df["team1_link"] == ""))
                     & arb_df["team1_book"].str.contains("Fanatics"),
                     "team1_link",
                 ] = "https://sportsbook.fanatics.com/"
                 arb_df.loc[
-                    (arb_df["team2_link"].isnull() | (arb_df["team2_link"] == ""))
+                    (arb_df["team2_link"].isnull()
+                     | (arb_df["team2_link"] == ""))
                     & arb_df["team2_book"].str.contains("Fanatics"),
                     "team2_link",
                 ] = "https://sportsbook.fanatics.com/"
@@ -1487,7 +1520,8 @@ async def get_all_data() -> tuple:
 
             # Log the results
             logger.info(f"Found {len(raw_df)} raw odds entries")
-            logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            logger.info(
+                f"Found {len(arb_df)} arbitrage/low hold opportunities")
             logger.info(f"Found {len(ev_df)} +EV opportunities")
 
             return raw_df, arb_df, ev_df
@@ -1498,54 +1532,54 @@ async def get_all_data() -> tuple:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
-async def main():
-    """Main entry point for the application"""
-    # Set up basic logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("main")
+# async def main():
+#     """Main entry point for the application"""
+#     # Set up basic logging
+#     logging.basicConfig(level=logging.INFO)
+#     logger = logging.getLogger("main")
 
-    try:
-        logger.info("Starting odds finder application...")
+#     try:
+#         logger.info("Starting odds finder application...")
 
-        # Get all data
-        raw_df, arb_df, ev_df = await get_all_data()
+#         # Get all data
+#         raw_df, arb_df, ev_df = await get_all_data()
 
-        # Print summary of findings
-        print("\n=== Raw Odds Data ===")
-        if not raw_df.empty:
-            print(f"Total games: {len(raw_df)}")
-            print("\nSample of raw odds:")
-            print(raw_df.head())
-        else:
-            print("No raw odds data found")
+#         # Print summary of findings
+#         print("\n=== Raw Odds Data ===")
+#         if not raw_df.empty:
+#             print(f"Total games: {len(raw_df)}")
+#             print("\nSample of raw odds:")
+#             print(raw_df.head())
+#         else:
+#             print("No raw odds data found")
 
-        print("\n=== Arbitrage Opportunities ===")
-        if not arb_df.empty:
-            print(f"Total opportunities: {len(arb_df)}")
-            print("\nTop arbitrage opportunities:")
-            print(arb_df.sort_values("profit_percentage", ascending=False).head())
-        else:
-            print("No arbitrage opportunities found")
+#         print("\n=== Arbitrage Opportunities ===")
+#         if not arb_df.empty:
+#             print(f"Total opportunities: {len(arb_df)}")
+#             print("\nTop arbitrage opportunities:")
+#             print(arb_df.sort_values("profit_percentage", ascending=False).head())
+#         else:
+#             print("No arbitrage opportunities found")
 
-        print("\n=== +EV Opportunities ===")
-        if not ev_df.empty:
-            print(f"Total opportunities: {len(ev_df)}")
-            print("\nTop EV opportunities:")
-            print(ev_df.sort_values("ev_percentage", ascending=False).head())
-            ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
-        else:
-            print("No +EV opportunities found")
+#         print("\n=== +EV Opportunities ===")
+#         if not ev_df.empty:
+#             print(f"Total opportunities: {len(ev_df)}")
+#             print("\nTop EV opportunities:")
+#             print(ev_df.sort_values("ev_percentage", ascending=False).head())
+#             ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
+#         else:
+#             print("No +EV opportunities found")
 
-        return 0
+#         return 0
 
-    except KeyboardInterrupt:
-        logger.info("Process interrupted by user")
-        return 130
-    except Exception as e:
-        logger.error(f"Error running odds finder: {str(e)}")
-        logger.error(traceback.format_exc())
-        return 1
+#     except KeyboardInterrupt:
+#         logger.info("Process interrupted by user")
+#         return 130
+#     except Exception as e:
+#         logger.error(f"Error running odds finder: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         return 1
 
 
-if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+# if __name__ == "__main__":
+#     sys.exit(asyncio.run(main()))
