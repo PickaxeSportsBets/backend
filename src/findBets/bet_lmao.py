@@ -468,6 +468,24 @@ class OddsArbitrageFinder:
                                     "link": bookmaker.get("link", ""),
                                 }
 
+                                # Add market data for spreads
+                                if "spreads" in market.get("key", "").lower():
+                                    market_data = {"team1": {"odds": {}}, "team2": {"odds": {}}}
+                                    for bm in event.get("bookmakers", []):
+                                        if bm["title"].lower() not in [b.lower() for b in self.bookmakers]:
+                                            continue
+                                        for mkt in bm.get("markets", []):
+                                            if mkt["key"] == market["key"]:
+                                                for out in mkt["outcomes"]:
+                                                    side = "team1" if out["name"] == outcome["name"] else "team2"
+                                                    market_data[side]["odds"][bm["title"].lower()] = {
+                                                        "american": self.decimal_to_american(out["price"]),
+                                                        "decimal": out["price"],
+                                                        "point": out.get("point"),
+                                                        "link": bm.get("link"),
+                                                    }
+                                    row["market_data"] = market_data
+
                                 row["bet_key"] = hashlib.sha256(
                                     (
                                         str(row["game"])
@@ -478,12 +496,44 @@ class OddsArbitrageFinder:
                                     ).encode("utf-8")
                                 ).hexdigest()
 
+                                # Create DataFrame with explicit dtypes
+                                row_df = pd.DataFrame([row], columns=list(row.keys()))
+                                row_df = row_df.astype({
+                                    'id': str,
+                                    'sport_key': str,
+                                    'sport_title': str,
+                                    'commence_time': str,
+                                    'home_team': str,
+                                    'away_team': str,
+                                    'sport': str,
+                                    'timestamp': 'datetime64[ns, UTC]',
+                                    'game': str,
+                                    'team': str,
+                                    'market_type': str,
+                                    'market_point': 'float64',
+                                    'bookmaker': str,
+                                    'odds': 'int64',
+                                    'link': str,
+                                    'bet_key': str
+                                })
+
                                 if self.raw_data.empty:
-                                    self.raw_data = pd.DataFrame([row])
+                                    self.raw_data = row_df
                                 else:
+                                    # Ensure both DataFrames have the same columns
+                                    missing_cols = set(row_df.columns) - set(self.raw_data.columns)
+                                    for col in missing_cols:
+                                        self.raw_data[col] = None
+                                    
+                                    missing_cols = set(self.raw_data.columns) - set(row_df.columns)
+                                    for col in missing_cols:
+                                        row_df[col] = None
+                                    
+                                    # Concatenate with explicit columns to maintain dtype consistency
                                     self.raw_data = pd.concat(
-                                        [self.raw_data, pd.DataFrame([row])],
+                                        [self.raw_data, row_df],
                                         ignore_index=True,
+                                        axis=0
                                     )
 
                 # Log bookmaker information
@@ -1259,9 +1309,8 @@ class OddsArbitrageFinder:
                                     if fair_odd > 0:
                                         fair_prob = 100 / (fair_odd + 100)
                                     else:
-                                        fair_prob = abs(fair_odd) / (
-                                            abs(fair_odd) + 100
-                                        )
+                                        fair_prob = abs(
+                                                    fair_odd) / (abs(fair_odd) + 100)
 
                                     ev_percentage = (
                                         decimal_odds * fair_prob - 1) * 100
@@ -1328,106 +1377,33 @@ class OddsArbitrageFinder:
                             continue
 
                         # Devig Pinnacle odds
-                        pin_american = [odds["american"]
-                                        for odds in pin_odds_list]
+                        pin_american = [odds["american"] for odds in pin_odds_list]
                         fair_odds = power_devig(pin_american)
 
-                        # Collect all bookmaker odds for this prop
-                        market_data = {"over": {"odds": {}},
-                                       "under": {"odds": {}}}
+                        # Calculate EV
+                        if fair_odd > 0:
+                            fair_prob = 100 / (fair_odd + 100)
+                        else:
+                            fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
 
-                        for bm in all_bookmakers:
-                            if not isinstance(bm, dict) or "title" not in bm:
-                                continue
+                        ev_percentage = (
+                            decimal_odds * fair_prob - 1) * 100
 
-                            bm_title = bm["title"].lower()
-
-                            for market in bm.get("markets", []):
-                                if market["key"] != market_key:
-                                    continue
-
-                                for outcome in market["outcomes"]:
-                                    if (
-                                        outcome.get("description") != player
-                                        or str(outcome.get("point", "0")) != point
-                                    ):
-                                        continue
-
-                                    decimal_odds = outcome["price"]
-                                    american_odds = self.decimal_to_american(
-                                        decimal_odds)
-
-                                    side = "over" if "OVER" in outcome["name"].upper(
-                                    ) else "under"
-                                    market_data[side]["odds"][bm_title] = {
-                                        "american": american_odds,
-                                        "decimal": decimal_odds,
-                                        "link": bm.get("link"),
-                                    }
-
-                            if bm["title"].lower() != "pinnacle":
-                                for market in bm.get("markets", []):
-                                    if market["key"] != market_key:
-                                        continue
-
-                                    for outcome in market["outcomes"]:
-                                        if (
-                                            outcome.get(
-                                                "description") != player
-                                            or str(outcome.get("point", "0")) != point
-                                        ):
-                                            continue
-
-                                        american_odds = self.decimal_to_american(
-                                            outcome["price"])
-
-                                        # Match the outcome to the correct fair odds
-                                        idx = 0 if "OVER" in outcome["name"].upper(
-                                        ) else 1
-                                        fair_odd = fair_odds[idx]
-
-                                        # Check if odds are +EV
-                                        is_better = (
-                                            (american_odds > 0 and fair_odd >
-                                             0 and american_odds > fair_odd)
-                                            or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
-                                            or (american_odds > 0 and fair_odd < 0)
-                                        )
-
-                                        if is_better:
-                                            # Calculate EV
-                                            if american_odds > 0:
-                                                decimal_odds = (
-                                                    american_odds / 100) + 1
-                                            else:
-                                                decimal_odds = (
-                                                    100 / abs(american_odds)) + 1
-
-                                            if fair_odd > 0:
-                                                fair_prob = 100 / \
-                                                    (fair_odd + 100)
-                                            else:
-                                                fair_prob = abs(
-                                                    fair_odd) / (abs(fair_odd) + 100)
-
-                                            ev_percentage = (
-                                                decimal_odds * fair_prob - 1) * 100
-
-                                            if ev_percentage >= self.ev_threshold:
-                                                plus_ev_opportunities.append({
-                                                    "sport": game["sport_title"],
-                                                    "market_type": market_key.lower(),
-                                                    "market_point": point if point != "0" else None,
-                                                    "game": f"{game['home_team']} vs {game['away_team']}",
-                                                    "commence_time": game["commence_time"],
-                                                    "team": outcome["name"],
-                                                    "bookmaker": bm["title"],
-                                                    "odds": american_odds,
-                                                    "fair_odds": fair_odd,
-                                                    "ev_percentage": round(ev_percentage, 2),
-                                                    "link": bm.get("link", ""),
-                                                    "market_data": market_data,
-                                                })
+                        if ev_percentage >= self.ev_threshold:
+                            plus_ev_opportunities.append({
+                                "sport": game["sport_title"],
+                                "market_type": market_key.lower(),
+                                "market_point": point if point != "0" else None,
+                                "game": f"{game['home_team']} vs {game['away_team']}",
+                                "commence_time": game["commence_time"],
+                                "team": outcome["name"],
+                                "bookmaker": bm["title"],
+                                "odds": american_odds,
+                                "fair_odds": fair_odd,
+                                "ev_percentage": round(ev_percentage, 2),
+                                "link": bm.get("link", ""),
+                                "market_data": market_data,
+                            })
 
             return plus_ev_opportunities
 
