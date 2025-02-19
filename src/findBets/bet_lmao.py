@@ -122,21 +122,8 @@ class OddsArbitrageFinder:
         self.low_hold_threshold = 1.05
         self.ev_threshold = 3.0
 
-        # Player props configuration - expanded with more markets
+        # Player props configuration
         self.player_props = {
-            "NFL": [
-                "player_pass_yds",
-                "player_pass_tds",
-                "player_pass_completions",
-                "player_pass_attempts",
-                "player_rush_yds",
-                "player_rush_attempts",
-                "player_receptions",
-                "player_reception_yds",
-                "player_reception_tds",
-                "player_kicking_points",
-                "player_field_goals",
-            ],
             "NBA": [
                 "player_points",
                 "player_rebounds",
@@ -144,42 +131,26 @@ class OddsArbitrageFinder:
                 "player_threes",
                 "player_blocks",
                 "player_steals",
-                "player_double_double",
-                "player_triple_double",
-                "player_points_rebounds_assists",
-                "player_points_rebounds",
-                "player_points_assists",
-                "player_rebounds_assists",
             ],
-            "NHL": [
-                "player_points",
-                "player_shots_on_goal",
-                "player_goals",
-                "player_assists",
-                "player_power_play_points",
-                "player_blocked_shots",
-                "player_saves",
+            "NFL": [
+                "player_pass_tds",
+                "player_pass_yards",
+                "player_rush_yards",
+                "player_receptions",
+                "player_reception_yards",
+                "player_touchdowns",
             ],
-            "MLB": [
-                "batter_home_runs",
-                "batter_hits",
-                "batter_rbis",
-                "batter_runs_scored",
-                "batter_total_bases",
-                "batter_hits_runs_rbis",
-                "pitcher_strikeouts",
-                "pitcher_earned_runs",
-                "pitcher_hits_allowed",
-                "pitcher_walks",
-            ],
+            "NHL": ["player_points", "player_assists", "player_shots"],
+            "MLB": ["player_hits", "player_strikeouts", "player_home_runs"],
         }
 
-        # Sports to track - updated to include all major sports
+        # Sports to track
         self.sports = [
+            # "americanfootball_ncaaf",
+            "basketball_ncaab",
             "basketball_nba",
             "icehockey_nhl",
-            "baseball_mlb",
-            "americanfootball_nfl",
+            # "americanfootball_nfl",
         ]
 
         # Market types
@@ -917,45 +888,33 @@ class OddsArbitrageFinder:
                 and bm["title"].lower() in [b.lower() for b in self.bookmakers]
             ]
 
-            # Process all market types including player props
+            # Process all market types
             all_markets = self.featured_markets + self.alternate_markets
-            sport_name = (
-                game["sport_title"].upper().split("_")[1]
-                if "_" in game["sport_title"]
-                else game["sport_title"].upper()
-            )
-
-            if sport_name in self.player_props:
-                all_markets.extend(self.player_props[sport_name])
 
             for market_type in all_markets:
                 market_type = market_type.lower()  # Convert to lowercase
                 logger.debug(f"Processing market type: {market_type}")
 
-                # Group odds by player name, market type, and point
-                odds_by_player = {}
+                # Group odds by team and point
+                odds_by_team = {}
                 for bm in all_bookmakers:
                     for market in bm.get("markets", []):
                         if market["key"].lower() != market_type:
                             continue
 
                         for outcome in market["outcomes"]:
-                            # For player props, use description as the player name
-                            player_name = outcome.get("description", "")
                             key = (
-                                player_name,
                                 outcome["name"],
                                 str(outcome.get("point", "")),
                                 market["key"].lower(),
                             )
 
                             if (
-                                key not in odds_by_player
-                                or outcome["price"] > odds_by_player[key]["price"]
+                                key not in odds_by_team
+                                or outcome["price"] > odds_by_team[key]["price"]
                             ):
-                                odds_by_player[key] = {
+                                odds_by_team[key] = {
                                     "bookmaker": bm["title"],
-                                    "player": player_name,
                                     "team": outcome["name"],
                                     "price": outcome["price"],
                                     "point": outcome.get("point"),
@@ -963,25 +922,27 @@ class OddsArbitrageFinder:
                                     "market_key": market["key"].lower(),
                                 }
 
-                # Find matching pairs for player props
+                # Find matching pairs
                 processed_pairs = set()
-                for key1, odds1 in odds_by_player.items():
-                    for key2, odds2 in odds_by_player.items():
+                for key1, odds1 in odds_by_team.items():
+                    for key2, odds2 in odds_by_team.items():
                         if key1 == key2 or odds1["bookmaker"] == odds2["bookmaker"]:
                             continue
 
                         # Validate match based on market type
                         valid_pair = False
 
-                        # For player props
-                        if (
-                            "player_" in market_type
-                            or "batter_" in market_type
-                            or "pitcher_" in market_type
-                        ):
-                            if odds1["player"] == odds2["player"] and odds1.get(
-                                "point"
-                            ) == odds2.get("point"):
+                        if "h2h" in market_type:
+                            valid_pair = odds1["team"] != odds2["team"]
+
+                        elif "spreads" in market_type:
+                            if odds1["team"] != odds2["team"]:
+                                point1 = float(odds1.get("point", 0) or 0)
+                                point2 = float(odds2.get("point", 0) or 0)
+                                valid_pair = abs(point1 + point2) <= 0.1
+
+                        elif "totals" in market_type:
+                            if odds1.get("point") == odds2.get("point"):
                                 valid_pair = (
                                     "OVER" in odds1["team"].upper()
                                     and "UNDER" in odds2["team"].upper()
@@ -989,35 +950,18 @@ class OddsArbitrageFinder:
                                     "UNDER" in odds1["team"].upper()
                                     and "OVER" in odds2["team"].upper()
                                 )
-                        else:
-                            # Existing validation for other market types
-                            if "h2h" in market_type:
-                                valid_pair = odds1["team"] != odds2["team"]
-                            elif "spreads" in market_type:
-                                if odds1["team"] != odds2["team"]:
-                                    point1 = float(odds1.get("point", 0) or 0)
-                                    point2 = float(odds2.get("point", 0) or 0)
-                                    valid_pair = abs(point1 + point2) <= 0.1
-                            elif "totals" in market_type:
-                                if odds1.get("point") == odds2.get("point"):
-                                    valid_pair = (
-                                        "OVER" in odds1["team"].upper()
-                                        and "UNDER" in odds2["team"].upper()
-                                    ) or (
-                                        "UNDER" in odds1["team"].upper()
-                                        and "OVER" in odds2["team"].upper()
-                                    )
 
                         if valid_pair:
                             pair_key = tuple(sorted([key1, key2]))
                             if pair_key not in processed_pairs:
                                 processed_pairs.add(pair_key)
 
-                                # Collect all bookmaker odds for this market
+                                # Collect all bookmaker odds for this market point
                                 market_data = {
                                     "over": {"odds": {}},
                                     "under": {"odds": {}},
                                 }
+                                point = odds1.get("point")
 
                                 for bm in all_bookmakers:
                                     if not isinstance(bm, dict) or "title" not in bm:
@@ -1030,13 +974,7 @@ class OddsArbitrageFinder:
                                             continue
 
                                         for outcome in market["outcomes"]:
-                                            if odds1["player"] != outcome.get(
-                                                "description", ""
-                                            ):
-                                                continue
-                                            if odds1.get("point") != outcome.get(
-                                                "point"
-                                            ):
+                                            if point != outcome.get("point"):
                                                 continue
 
                                             decimal_odds = outcome["price"]
@@ -1044,11 +982,30 @@ class OddsArbitrageFinder:
                                                 decimal_odds
                                             )
 
-                                            side = (
-                                                "over"
-                                                if "OVER" in outcome["name"].upper()
-                                                else "under"
-                                            )
+                                            # Determine if it's over/under or team1/team2
+                                            if "totals" in market_type:
+                                                side = (
+                                                    "over"
+                                                    if "OVER" in outcome["name"].upper()
+                                                    else "under"
+                                                )
+                                            elif "spreads" in market_type:
+                                                # For spreads, team with positive spread goes in "over", negative in "under"
+                                                outcome_point = float(
+                                                    outcome.get("point", 0) or 0
+                                                )
+                                                side = (
+                                                    "over"
+                                                    if outcome_point > 0
+                                                    else "under"
+                                                )
+                                            else:
+                                                side = (
+                                                    "over"
+                                                    if outcome["name"] == odds1["team"]
+                                                    else "under"
+                                                )
+
                                             market_data[side]["odds"][bm_title] = {
                                                 "american": american_odds,
                                                 "decimal": decimal_odds,
@@ -1078,21 +1035,11 @@ class OddsArbitrageFinder:
                                         else 0
                                     )
 
-                                    # Create prop description for player props
-                                    prop_description = None
-                                    if (
-                                        "player_" in market_type
-                                        or "batter_" in market_type
-                                        or "pitcher_" in market_type
-                                    ):
-                                        prop_description = f"{odds1['player']} - {market_type.replace('player_', '').replace('batter_', '').replace('pitcher_', '').replace('_', ' ').title()}"
-
                                     opportunities.append(
                                         {
                                             "sport": game["sport_title"],
                                             "opportunity_type": opportunity_type,
                                             "market_type": market_type,
-                                            "prop_description": prop_description,
                                             "market_point": odds1.get("point"),
                                             "game": f"{game['home_team']} vs {game['away_team']}",
                                             "commence_time": game["commence_time"],
@@ -1447,7 +1394,6 @@ async def main():
             print(f"Total opportunities: {len(arb_df)}")
             print("\nTop arbitrage opportunities:")
             print(arb_df.sort_values("profit_percentage", ascending=False).head())
-            arb_df.to_csv("src/findBets/arbitrage.csv", index=False)
         else:
             print("No arbitrage opportunities found")
 
