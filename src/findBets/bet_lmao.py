@@ -952,7 +952,11 @@ class OddsArbitrageFinder:
             ]
 
             # Process all market types
-            all_markets = self.featured_markets + self.alternate_markets
+            all_markets = (
+                self.featured_markets 
+                + self.alternate_markets 
+                + self.player_props.get(game["sport_title"].upper(), [])
+            )
 
             for market_type in all_markets:
                 market_type = market_type.lower()  # Convert to lowercase
@@ -1004,15 +1008,15 @@ class OddsArbitrageFinder:
                                 point2 = float(odds2.get("point", 0) or 0)
                                 valid_pair = abs(point1 + point2) <= 0.1
 
-                        elif "totals" in market_type:
+                        elif "totals" in market_type or "player_" in market_type:
                             if odds1.get("point") == odds2.get("point"):
                                 valid_pair = (
-                                    "OVER" in odds1["team"].upper()
-                                    and "UNDER" in odds2["team"].upper()
-                                ) or (
-                                    "UNDER" in odds1["team"].upper()
-                                    and "OVER" in odds2["team"].upper()
+                                    ("OVER" in odds1["team"].upper() and "UNDER" in odds2["team"].upper())
+                                    or ("UNDER" in odds1["team"].upper() and "OVER" in odds2["team"].upper())
                                 )
+                                # For player props, also check if they're for the same player
+                                if valid_pair and "player_" in market_type:
+                                    valid_pair = odds1.get("description") == odds2.get("description")
 
                         if valid_pair:
                             pair_key = tuple(sorted([key1, key2]))
