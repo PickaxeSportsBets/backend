@@ -1250,26 +1250,22 @@ class OddsArbitrageFinder:
                                     ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
                                     if ev_percentage >= self.ev_threshold:
-                                        plus_ev_opportunities.append(
-                                            {
-                                                "sport": game["sport_title"],
-                                                "market_type": market_type,
-                                                "market_point": (
-                                                    point if point != "0" else None
-                                                ),
-                                                "game": f"{game['home_team']} vs {game['away_team']}",
-                                                "commence_time": game["commence_time"],
-                                                "team": outcome["name"],
-                                                "bookmaker": bm["title"],
-                                                "odds": american_odds,
-                                                "fair_odds": fair_odd,
-                                                "ev_percentage": round(
-                                                    ev_percentage, 2
-                                                ),
-                                                "link": bm.get("link", ""),
-                                                "market_data": market_data,
-                                            }
-                                        )
+                                        plus_ev_opportunities.append({
+                                            "sport": game["sport_title"],
+                                            "market_type": market_type,
+                                            "market_point": (
+                                                point if point != "0" else None
+                                            ),
+                                            "game": f"{game['home_team']} vs {game['away_team']}",
+                                            "commence_time": game["commence_time"],
+                                            "team": outcome["name"],
+                                            "bookmaker": bm["title"],
+                                            "odds": american_odds,
+                                            "fair_odds": fair_odd,
+                                            "ev_percentage": round(ev_percentage, 2),
+                                            "link": bm.get("link", ""),
+                                            "market_data": market_data,
+                                        })
 
             # Process player props
             sport_name = game["sport_key"].upper().split("_")[1] if "_" in game["sport_key"] else game["sport_key"].upper()
@@ -1389,7 +1385,7 @@ class OddsArbitrageFinder:
                                             if ev_percentage >= self.ev_threshold:
                                                 plus_ev_opportunities.append({
                                                     "sport": game["sport_title"],
-                                                    "market_type": f"PLAYER PROP - {market_key.replace('player_', '').replace('_', ' ').title()}",
+                                                    "market_type": market_key.lower(),
                                                     "market_point": point if point != "0" else None,
                                                     "game": f"{game['home_team']} vs {game['away_team']}",
                                                     "commence_time": game["commence_time"],
