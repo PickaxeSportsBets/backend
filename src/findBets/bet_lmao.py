@@ -1271,6 +1271,137 @@ class OddsArbitrageFinder:
                                             }
                                         )
 
+            # Process player props
+            sport_name = game["sport_key"].upper().split("_")[1] if "_" in game["sport_key"] else game["sport_key"].upper()
+            if sport_name in self.player_props:
+                prop_markets = self.player_props[sport_name]
+                
+                # Get Pinnacle player prop odds
+                pinnacle_prop_odds = {}
+                for bm in all_bookmakers:
+                    if not isinstance(bm, dict) or "title" not in bm:
+                        continue
+
+                    if bm["title"].lower() == "pinnacle":
+                        for market in bm.get("markets", []):
+                            if market["key"] in prop_markets:
+                                market_key = market["key"]
+                                if market_key not in pinnacle_prop_odds:
+                                    pinnacle_prop_odds[market_key] = []
+                                
+                                for outcome in market["outcomes"]:
+                                    pinnacle_prop_odds[market_key].append({
+                                        "player": outcome.get("description", "Unknown"),
+                                        "team": outcome["name"],
+                                        "price": outcome["price"],
+                                        "point": outcome.get("point"),
+                                        "american": self.decimal_to_american(outcome["price"])
+                                    })
+
+                # Process each player prop market
+                for market_key, pin_props in pinnacle_prop_odds.items():
+                    # Group by player and point
+                    pin_props_by_player = {}
+                    for prop in pin_props:
+                        key = (prop["player"], str(prop.get("point", "0")))
+                        if key not in pin_props_by_player:
+                            pin_props_by_player[key] = []
+                        pin_props_by_player[key].append(prop)
+
+                    # Process each player's props
+                    for (player, point), pin_odds_list in pin_props_by_player.items():
+                        if len(pin_odds_list) != 2:  # Need both over/under for devig
+                            continue
+
+                        # Devig Pinnacle odds
+                        pin_american = [odds["american"] for odds in pin_odds_list]
+                        fair_odds = power_devig(pin_american)
+
+                        # Collect all bookmaker odds for this prop
+                        market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
+
+                        for bm in all_bookmakers:
+                            if not isinstance(bm, dict) or "title" not in bm:
+                                continue
+
+                            bm_title = bm["title"].lower()
+
+                            for market in bm.get("markets", []):
+                                if market["key"] != market_key:
+                                    continue
+
+                                for outcome in market["outcomes"]:
+                                    if (
+                                        outcome.get("description") != player
+                                        or str(outcome.get("point", "0")) != point
+                                    ):
+                                        continue
+
+                                    decimal_odds = outcome["price"]
+                                    american_odds = self.decimal_to_american(decimal_odds)
+
+                                    side = "over" if "OVER" in outcome["name"].upper() else "under"
+                                    market_data[side]["odds"][bm_title] = {
+                                        "american": american_odds,
+                                        "decimal": decimal_odds,
+                                        "link": bm.get("link"),
+                                    }
+
+                            if bm["title"].lower() != "pinnacle":
+                                for market in bm.get("markets", []):
+                                    if market["key"] != market_key:
+                                        continue
+
+                                    for outcome in market["outcomes"]:
+                                        if (
+                                            outcome.get("description") != player
+                                            or str(outcome.get("point", "0")) != point
+                                        ):
+                                            continue
+
+                                        american_odds = self.decimal_to_american(outcome["price"])
+
+                                        # Match the outcome to the correct fair odds
+                                        idx = 0 if "OVER" in outcome["name"].upper() else 1
+                                        fair_odd = fair_odds[idx]
+
+                                        # Check if odds are +EV
+                                        is_better = (
+                                            (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
+                                            or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
+                                            or (american_odds > 0 and fair_odd < 0)
+                                        )
+
+                                        if is_better:
+                                            # Calculate EV
+                                            if american_odds > 0:
+                                                decimal_odds = (american_odds / 100) + 1
+                                            else:
+                                                decimal_odds = (100 / abs(american_odds)) + 1
+
+                                            if fair_odd > 0:
+                                                fair_prob = 100 / (fair_odd + 100)
+                                            else:
+                                                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
+
+                                            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+
+                                            if ev_percentage >= self.ev_threshold:
+                                                plus_ev_opportunities.append({
+                                                    "sport": game["sport_title"],
+                                                    "market_type": f"PLAYER PROP - {market_key.replace('player_', '').replace('_', ' ').title()}",
+                                                    "market_point": point if point != "0" else None,
+                                                    "game": f"{game['home_team']} vs {game['away_team']}",
+                                                    "commence_time": game["commence_time"],
+                                                    "team": f"{player} {outcome['name']}",
+                                                    "bookmaker": bm["title"],
+                                                    "odds": american_odds,
+                                                    "fair_odds": fair_odd,
+                                                    "ev_percentage": round(ev_percentage, 2),
+                                                    "link": bm.get("link", ""),
+                                                    "market_data": market_data,
+                                                })
+
             return plus_ev_opportunities
 
         except Exception as e:
@@ -1405,7 +1536,7 @@ async def main():
             print(f"Total opportunities: {len(ev_df)}")
             print("\nTop EV opportunities:")
             print(ev_df.sort_values("ev_percentage", ascending=False).head())
-            # ev_df.to_csv('ev_opportunities.csv', index=False)
+            ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
         else:
             print("No +EV opportunities found")
 
