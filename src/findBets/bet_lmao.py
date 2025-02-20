@@ -1374,7 +1374,6 @@ class OddsArbitrageFinder:
 
                                     ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
-                                    team = f"{outcome['description']} {'Over' if side == 'over' else 'Under'}"
 
                                     if ev_percentage >= self.ev_threshold:
                                         opportunity = {
@@ -1385,7 +1384,7 @@ class OddsArbitrageFinder:
                                             ),
                                             "game": f"{game['home_team']} vs {game['away_team']}",
                                             "commence_time": game["commence_time"],
-                                            "team": team,
+                                            "team": outcome["name"],
                                             "bookmaker": bm["title"],
                                             "odds": american_odds,
                                             "fair_odds": fair_odd,
