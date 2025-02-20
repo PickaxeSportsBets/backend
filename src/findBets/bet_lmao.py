@@ -499,7 +499,8 @@ class OddsArbitrageFinder:
                                         + str(row["market_type"])
                                         + str(row["market_point"])
                                         + str(row["bookmaker"])
-                                    ).hexdigest()
+                                    ).encode("utf-8")
+                                ).hexdigest()
 
                                 # Create DataFrame with explicit dtypes
                                 row_df = pd.DataFrame([row], columns=list(row.keys()))
@@ -1223,55 +1224,20 @@ class OddsArbitrageFinder:
                     fair_odds = power_devig(pin_american)
 
                     # Collect all bookmaker odds for this market point/player
-                    market_data = {}
-                    
-                    # Handle spreads differently
-                    if "spreads" in market_type:
-                        market_data = {
-                            "fair_odds": {
-                                "odds": {
-                                    "american": fair_odds[0],
-                                    "decimal": None  # We don't calculate decimal for fair odds
-                                }
-                            },
-                            "pinnacle": {
-                                "odds": {
-                                    "american": pin_american[0],
-                                    "decimal": pin_odds_list[0]["price"],
-                                    "link": None  # Pinnacle links not provided
-                                }
+                    market_data = {
+                        "over": {
+                            "odds": {
+                                "fair_odds": {"american": fair_odds[0]},
+                                "pinnacle": {"american": pin_american[0]},
+                            }
+                        }, 
+                        "under": {
+                            "odds": {
+                                "fair_odds": {"american": fair_odds[1]},
+                                "pinnacle": {"american": pin_american[1]},
                             }
                         }
-                    else:
-                        # For non-spread markets (totals, player props)
-                        market_data = {
-                            "over": {
-                                "odds": {
-                                    "fair_odds": {
-                                        "american": fair_odds[0],
-                                        "decimal": None
-                                    },
-                                    "pinnacle": {
-                                        "american": pin_american[0],
-                                        "decimal": pin_odds_list[0]["price"],
-                                        "link": None
-                                    }
-                                }
-                            },
-                            "under": {
-                                "odds": {
-                                    "fair_odds": {
-                                        "american": fair_odds[1],
-                                        "decimal": None
-                                    },
-                                    "pinnacle": {
-                                        "american": pin_american[1],
-                                        "decimal": pin_odds_list[1]["price"],
-                                        "link": None
-                                    }
-                                }
-                            }
-                        }
+                    }
 
                     for bm in all_bookmakers:
                         if not isinstance(bm, dict) or "title" not in bm:
@@ -1295,34 +1261,21 @@ class OddsArbitrageFinder:
                                 decimal_odds = outcome["price"]
                                 american_odds = self.decimal_to_american(decimal_odds)
 
-                                # Add odds based on market type
-                                if "spreads" in market_type:
-                                    market_data[bm_title] = {
-                                        "odds": {
-                                            "american": american_odds,
-                                            "decimal": decimal_odds,
-                                            "link": bm.get("link")
-                                        }
-                                    }
+                                # Determine side (over/under)
+                                if "totals" in market_type or any(prop in market_type for prop in ["points", "rebounds", "assists", "threes", "shots", "goals", "yards", "receptions"]):
+                                    side = "over" if "OVER" in outcome["name"].upper() else "under"
                                 else:
-                                    # Determine side (over/under)
-                                    if "totals" in market_type or any(prop in market_type for prop in ["points", "rebounds", "assists", "threes", "shots", "goals", "yards", "receptions"]):
-                                        side = "over" if "OVER" in outcome["name"].upper() else "under"
-                                    else:
-                                        side = "over" if outcome["name"] == pin_odds_list[0]["team"] else "under"
+                                    side = "over" if outcome["name"] == pin_odds_list[0]["team"] else "under"
 
-                                    market_data[side]["odds"][bm_title] = {
-                                        "american": american_odds,
-                                        "decimal": decimal_odds,
-                                        "link": bm.get("link")
-                                    }
+                                market_data[side]["odds"][bm_title] = {
+                                    "american": american_odds,
+                                    "decimal": decimal_odds,
+                                    "link": bm.get("link"),
+                                }
 
                                 # Match the outcome to the correct fair odds
-                                if "spreads" in market_type:
-                                    fair_odd = fair_odds[0]  # For spreads, we only have one fair odd
-                                else:
-                                    idx = 0 if side == "over" else 1
-                                    fair_odd = fair_odds[idx]
+                                idx = 0 if side == "over" else 1
+                                fair_odd = fair_odds[idx]
 
                                 # Check if odds are +EV
                                 is_better = (
