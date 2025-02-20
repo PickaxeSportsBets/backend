@@ -988,8 +988,8 @@ class OddsArbitrageFinder:
                                 market_data = {}
                                 if "h2h" in market_type:
                                     market_data = {
-                                        "team1": {"odds": {}},
-                                        "team2": {"odds": {}},
+                                        game["home_team"]: {"odds": {}},
+                                        game["away_team"]: {"odds": {}},
                                     }
                                 else:
                                     market_data = {
@@ -1065,7 +1065,7 @@ class OddsArbitrageFinder:
                                             else:
                                                 # Handle non-spread markets
                                                 if "h2h" in market_type:
-                                                    side = "team1" if outcome["name"] == odds1["team"] else "team2"
+                                                    side = game["home_team"] if outcome["name"] == game["home_team"] else game["away_team"]
                                                 elif "totals" in market_type:
                                                     side = "over" if "OVER" in outcome["name"].upper(
                                                     ) else "under"
@@ -1235,8 +1235,8 @@ class OddsArbitrageFinder:
                     market_data = {}
                     if "h2h" in market_type:
                         market_data = {
-                            "team1": {"odds": {}},
-                            "team2": {"odds": {}},
+                            game["home_team"]: {"odds": {}},
+                            game["away_team"]: {"odds": {}},
                         }
                     else:
                         market_data = {
@@ -1247,7 +1247,7 @@ class OddsArbitrageFinder:
                     # Add Pinnacle odds to market_data
                     for idx, pin_odd in enumerate(pin_odds_list):
                         if "h2h" in market_type:
-                            side = "team1" if idx == 0 else "team2"
+                            side = game["home_team"] if idx == 0 else game["away_team"]
                         else:
                             side = "over" if idx == 0 else "under"
 
@@ -1337,7 +1337,7 @@ class OddsArbitrageFinder:
                                 else:
                                     # Handle non-spread markets
                                     if "h2h" in market_type:
-                                        side = "team1" if outcome["name"] == pin_odds_list[0]["team"] else "team2"
+                                        side = game["home_team"] if outcome["name"] == game["home_team"] else game["away_team"]
                                     elif "totals" in market_type or any(
                                         prop in market_type
                                         for prop in [
