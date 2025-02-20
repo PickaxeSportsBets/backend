@@ -465,7 +465,11 @@ class OddsArbitrageFinder:
                                     "link": bookmaker.get("link", ""),
                                 }
 
-                                s
+                                # Modify team name for player props to include player name
+                                if "player_" in market.get("key", "").lower():
+                                    player_name = outcome.get("description", "")
+                                    if player_name:
+                                        row["team"] = f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
 
                                 # Add market data for spreads
                                 if "spreads" in market.get("key", "").lower():
@@ -825,6 +829,13 @@ class OddsArbitrageFinder:
                                         ),
                                         "link": bookmaker.get("link", ""),
                                     }
+                                    
+                                    # Modify team name for player props to include player name
+                                    if "player_" in market.get("key", "").lower():
+                                        player_name = outcome.get("description", "")
+                                        if player_name:
+                                            row["team"] = f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
+
                                     rows.append(row)
 
                         if rows:
