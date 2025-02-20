@@ -120,7 +120,7 @@ async def send_daily_email():
             active_subscriptions = supabase.table("subscriptions").select(
                 "*").eq("status", "active").lt("current_period_end", datetime.now(timezone.utc)).execute()
             arbBets = supabase.table("arbitrage").select(
-                "*").eq("opportunity_type", "Arbitrage").gt("profit_percentage", 1).execute()
+                "*").eq("opportunity_type", "Arbitrage").gt("profit_percentage", 0).execute()
             evBets = supabase.table("plus_ev").select(
                 "*").order('ev_percentage', desc=True).limit(5).execute()
 

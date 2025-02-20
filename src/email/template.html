@@ -250,8 +250,10 @@
         <div class="bet-card">
             <div class="market-type">
                 {{ bet.market_type }}
-                {% if bet.prop_description %}
-                - {{ bet.prop_description }}
+                {% if bet.prop_description or bet.player %}
+                - {% if bet.prop_description %}{{ bet.prop_description }}{% endif %}
+                {% if bet.prop_description and bet.player %} | {% endif %}
+                {% if bet.player %}{{ bet.player }}{% endif %}
                 {% endif %}
             </div>
             <div class="game-title">{{ bet.game }}</div>
