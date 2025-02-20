@@ -221,7 +221,7 @@ async def update_db():
             'primary_key', 'no_match').execute()
         supabase.table("plus_ev").delete().neq(
             'primary_key', 'no_match').execute()
-        batch_size = 100
+        batch_size = 1000
         for i in range(0, len(arb_json), batch_size):
             batch = arb_json[i:i + batch_size]
             supabase.table("arbitrage").insert(batch).execute()
