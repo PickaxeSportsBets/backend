@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime, timezone
 import time
 import json
-import logging
 import os
 import hashlib
 import aiohttp
@@ -101,12 +100,7 @@ class OddsArbitrageFinder:
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Set up logging
-        self.setup_logging()
-
-        # Initialize logger for this class
-        self.logger = logging.getLogger("odds_finder")
-        self.logger.info("Initializing OddsArbitrageFinder...")
+        print("Initializing OddsArbitrageFinder...")
 
         # Initialize session and rate limiter
         self.session = None
@@ -200,47 +194,6 @@ class OddsArbitrageFinder:
         # Store initial data
         self.raw_data = pd.DataFrame()
 
-    def setup_logging(self):
-        """Configure logging for the application"""
-        # Create logs directory if it doesn't exist
-        log_dir = os.path.join(self.output_dir, "logs")
-        os.makedirs(log_dir, exist_ok=True)
-
-        # Set up root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)
-
-        # Remove any existing handlers
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
-
-        # Console handler with color formatting
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_format = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        console_handler.setFormatter(console_format)
-        root_logger.addHandler(console_handler)
-
-        # File handler for detailed debug logs
-        debug_file = os.path.join(log_dir, "debug.log")
-        file_handler = logging.FileHandler(debug_file)
-        file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-        )
-        file_handler.setFormatter(file_format)
-        root_logger.addHandler(file_handler)
-
-        # File handler for errors
-        error_file = os.path.join(log_dir, "error.log")
-        error_handler = logging.FileHandler(error_file)
-        error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(file_format)
-        root_logger.addHandler(error_handler)
-
     async def __aenter__(self):
         """Async context manager entry"""
         self.session = aiohttp.ClientSession()
@@ -258,9 +211,7 @@ class OddsArbitrageFinder:
 
             async with self.session.get(url, params=params) as response:
                 if response.status == 429:  # Rate limit exceeded
-                    self.logger.warning(
-                        "Rate limit exceeded - implementing backoff strategy"
-                    )
+                    print("Rate limit exceeded - implementing backoff strategy")
                     await self.rate_limiter.handle_rate_limit()
                     # Retry with backoff
                     return await self.make_request(url, params)
@@ -273,10 +224,10 @@ class OddsArbitrageFinder:
                 return data
 
         except aiohttp.ClientError as e:
-            self.logger.error(f"Error making request: {str(e)}")
+            print(f"Error making request: {str(e)}")
             if isinstance(e, aiohttp.ClientResponseError):
-                self.logger.error(f"Status: {e.status}")
-                self.logger.error(f"Message: {e.message}")
+                print(f"Status: {e.status}")
+                print(f"Message: {e.message}")
 
                 if e.status == 429:  # Handle rate limit in exception case
                     await self.rate_limiter.handle_rate_limit()
@@ -284,22 +235,19 @@ class OddsArbitrageFinder:
             return None
 
         except Exception as e:
-            self.logger.error(
-                f"Unexpected error in make_request: {str(e)}", exc_info=True
-            )
+            print(f"Unexpected error in make_request: {str(e)}")
             return None
 
     async def get_player_props(self, sport: str, event_id: str) -> List[dict]:
         """Fetch player props for a specific event"""
         sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
-        logger = logging.getLogger("player_props")
 
         if sport_name not in self.player_props:
-            logger.debug(f"No player props configured for sport: {sport_name}")
+            print(f"No player props configured for sport: {sport_name}")
             return []
 
         prop_markets = self.player_props[sport_name]
-        logger.info(f"Fetching player props for {sport_name} event {event_id}")
+        print(f"Fetching player props for {sport_name} event {event_id}")
 
         # Split markets into smaller batches to avoid large requests
         batch_size = 3
@@ -307,7 +255,7 @@ class OddsArbitrageFinder:
 
         for i in range(0, len(prop_markets), batch_size):
             market_batch = prop_markets[i : i + batch_size]
-            logger.debug(f"Fetching market batch: {market_batch}")
+            print(f"Fetching market batch: {market_batch}")
 
             url = f"{self.base_url}/{sport}/events/{event_id}/odds"
             params = {
@@ -321,14 +269,12 @@ class OddsArbitrageFinder:
             try:
                 data = await self.make_request(url, params)
                 if not data:
-                    logger.warning(
-                        f"No data received for market batch in event {event_id}"
-                    )
+                    print(f"No data received for market batch in event {event_id}")
                     continue
 
                 if "bookmakers" in data:
                     all_bookmakers.extend(data["bookmakers"])
-                    logger.info(
+                    print(
                         f"Received data from {len(data['bookmakers'])} bookmakers for market batch"
                     )
 
@@ -337,53 +283,44 @@ class OddsArbitrageFinder:
                     await asyncio.sleep(1)
 
             except Exception as e:
-                logger.error(
-                    f"Error fetching market batch for event {event_id}: {str(e)}"
-                )
+                print(f"Error fetching market batch for event {event_id}: {str(e)}")
                 continue
 
         if not all_bookmakers:
-            logger.warning(
-                f"No bookmaker data received for any markets in event {event_id}"
-            )
+            print(f"No bookmaker data received for any markets in event {event_id}")
 
         return all_bookmakers
 
     def process_player_props(self, bookmakers: List[dict], sport: str) -> Dict:
         """Process player props data"""
-        logger = logging.getLogger("player_props_processor")
         markets = {}
         sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
         prop_markets = self.player_props.get(sport_name, [])
 
-        logger.info(f"Processing player props for {sport_name}")
-        logger.debug(f"Available prop markets: {prop_markets}")
-        logger.info(f"Processing data from {len(bookmakers)} bookmakers")
+        print(f"Processing player props for {sport_name}")
+        print(f"Available prop markets: {prop_markets}")
+        print(f"Processing data from {len(bookmakers)} bookmakers")
 
         for bookmaker in bookmakers:
-            logger.debug(f"Processing bookmaker: {bookmaker['title']}")
+            print(f"Processing bookmaker: {bookmaker['title']}")
             if bookmaker["title"].lower() not in [b.lower() for b in self.bookmakers]:
-                logger.debug(
+                print(
                     f"Skipping bookmaker {bookmaker['title']} - not in configured list"
                 )
                 continue
 
             for market in bookmaker.get("markets", []):
                 if market["key"] not in prop_markets:
-                    logger.debug(
-                        f"Skipping market {market['key']} - not in prop markets list"
-                    )
+                    print(f"Skipping market {market['key']} - not in prop markets list")
                     continue
 
-                logger.debug(
+                print(
                     f"Processing market: {market['key']} with {len(market['outcomes'])} outcomes"
                 )
                 for outcome in market["outcomes"]:
                     player_name = outcome.get("description", "Unknown")
                     if player_name == "Unknown":
-                        logger.warning(
-                            f"Missing player description in outcome: {outcome}"
-                        )
+                        print(f"Missing player description in outcome: {outcome}")
                         continue
 
                     prop_type = market["key"].replace("player_", "")
@@ -408,15 +345,15 @@ class OddsArbitrageFinder:
                             "link": bookmaker.get("link", ""),
                         }
                     )
-                    logger.debug(
+                    print(
                         f"Added outcome for {player_name} - {prop_type} - {outcome['name']} @ {outcome.get('price', 0)}"
                     )
 
-        logger.info(f"Processed {len(markets)} unique player prop markets")
+        print(f"Processed {len(markets)} unique player prop markets")
         for market_key, outcomes in markets.items():
-            logger.debug(f"Market {market_key}: {len(outcomes)} outcomes")
+            print(f"Market {market_key}: {len(outcomes)} outcomes")
             for outcome in outcomes:
-                logger.debug(
+                print(
                     f"  - {outcome['bookmaker']}: {outcome['team']} @ {outcome['price']}"
                 )
 
@@ -424,7 +361,6 @@ class OddsArbitrageFinder:
 
     async def get_featured_odds(self, sport: str) -> List[dict]:
         """Fetch odds for featured markets"""
-        logger = logging.getLogger("featured_odds")
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{self.base_url}/{sport}/odds"
 
@@ -469,7 +405,9 @@ class OddsArbitrageFinder:
                                 if "player_" in market.get("key", "").lower():
                                     player_name = outcome.get("description", "")
                                     if player_name:
-                                        row["team"] = f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
+                                        row["team"] = (
+                                            f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
+                                        )
 
                                 # Add market data for spreads
                                 if "spreads" in market.get("key", "").lower():
@@ -565,33 +503,31 @@ class OddsArbitrageFinder:
                     for bm in event.get("bookmakers", []):
                         bookmakers_found.add(bm.get("title", "").lower())
 
-                logger.info(f"Found data from bookmakers: {sorted(bookmakers_found)}")
+                print(f"Found data from bookmakers: {sorted(bookmakers_found)}")
                 missing_books = (
                     set(b.lower() for b in self.bookmakers) - bookmakers_found
                 )
                 if missing_books:
-                    logger.warning(
-                        f"Missing data from bookmakers: {sorted(missing_books)}"
-                    )
+                    print(f"Missing data from bookmakers: {sorted(missing_books)}")
 
         return data if data else []
 
     async def get_dfs(self) -> tuple:
         """Get DataFrames for arbitrage and +EV opportunities"""
         try:
-            self.logger.info("Starting odds analysis...")
+            print("Starting odds analysis...")
 
             # Generate arbitrage table
-            self.logger.info("Generating arbitrage opportunities table...")
+            print("Generating arbitrage opportunities table...")
             arb_df = await self.generate_arbitrage_table()
-            self.logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
 
             # Create EV DataFrame
-            self.logger.info("Processing +EV opportunities...")
+            print("Processing +EV opportunities...")
             ev_df = pd.DataFrame(self.all_plus_ev)
 
             if not ev_df.empty:
-                self.logger.info(f"Found {len(ev_df)} +EV opportunities")
+                print(f"Found {len(ev_df)} +EV opportunities")
                 # Ensure consistent primary key generation between raw and EV data
                 ev_df["primary_key"] = ev_df.apply(
                     lambda row: hashlib.sha256(
@@ -607,7 +543,7 @@ class OddsArbitrageFinder:
                 )
                 ev_df["timestamp"] = datetime.now(timezone.utc)
             else:
-                self.logger.info("No +EV opportunities found")
+                print("No +EV opportunities found")
 
             if not arb_df.empty:
                 arb_df["primary_key"] = (
@@ -629,7 +565,7 @@ class OddsArbitrageFinder:
             # raw_data_path = os.path.join(
             #     self.output_dir, "raw_odds_data.csv")
             # self.raw_data.to_csv(raw_data_path, index=False)
-            # self.logger.info(f"Saved raw odds data to {raw_data_path}")
+            # print(f"Saved raw odds data to {raw_data_path}")
 
             # Convert timestamps to ISO format
             current_time = datetime.now(timezone.utc).isoformat()
@@ -657,25 +593,29 @@ class OddsArbitrageFinder:
             arb_data = json.loads(json.dumps(arb_data, default=str))
             ev_data = json.loads(json.dumps(ev_data, default=str))
 
-            # Convert back to DataFrames
-            raw_df = pd.DataFrame(raw_data)
-            arb_df = pd.DataFrame(arb_data)
-            ev_df = pd.DataFrame(ev_data)
+            # Convert back to DataFrames, preserving all columns
+            raw_df = pd.DataFrame(raw_data, columns=raw_df.columns)
+            arb_df = pd.DataFrame(arb_data, columns=arb_df.columns)
+            ev_df = pd.DataFrame(ev_data, columns=ev_df.columns)
 
-            self.logger.info("Analysis complete")
+            print(f"Found {len(raw_df)} raw odds entries")
+            print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            print(f"Found {len(ev_df)} +EV opportunities")
+
+            print("Analysis complete")
             return arb_df, ev_df
 
         except Exception as e:
-            self.logger.error(f"Error in get_dfs: {str(e)}", exc_info=True)
+            print(f"Error in get_dfs: {str(e)}")
             return pd.DataFrame(), pd.DataFrame()
 
     async def generate_arbitrage_table(self) -> pd.DataFrame:
         """Generate table of arbitrage opportunities"""
         try:
-            self.logger.info("Starting arbitrage table generation...")
+            print("Starting arbitrage table generation...")
 
             # Fetch odds for all sports
-            self.logger.info("Fetching odds for all sports...")
+            print("Fetching odds for all sports...")
             all_featured_odds = []
 
             # Get all sports data concurrently
@@ -684,15 +624,13 @@ class OddsArbitrageFinder:
 
             for sport, featured_odds in zip(self.sports, featured_odds_results):
                 if featured_odds:
-                    self.logger.info(
-                        f"Received data for {sport}: {len(featured_odds)} games"
-                    )
+                    print(f"Received data for {sport}: {len(featured_odds)} games")
                     all_featured_odds.extend([(sport, game) for game in featured_odds])
                 else:
-                    self.logger.warning(f"No odds data received for {sport}")
+                    print(f"No odds data received for {sport}")
 
             # Process all games concurrently
-            self.logger.info(f"Processing {len(all_featured_odds)} total games...")
+            print(f"Processing {len(all_featured_odds)} total games...")
             game_tasks = [self.process_game(game) for _, game in all_featured_odds]
             all_results = await asyncio.gather(*game_tasks)
 
@@ -707,7 +645,7 @@ class OddsArbitrageFinder:
 
             # Create DataFrame
             if self.all_opportunities:
-                self.logger.info(
+                print(
                     f"Creating DataFrame with {len(self.all_opportunities)} opportunities"
                 )
                 df = pd.DataFrame(self.all_opportunities)
@@ -738,6 +676,7 @@ class OddsArbitrageFinder:
                     "profit_percentage",
                     "market_data",
                     "timestamp",
+                    "player",  # Add player column
                 ]
 
                 # Ensure all columns exist, fill missing with None
@@ -747,21 +686,17 @@ class OddsArbitrageFinder:
 
                 return df[columns]
             else:
-                self.logger.info("No arbitrage opportunities found")
+                print("No arbitrage opportunities found")
                 return pd.DataFrame()
 
         except Exception as e:
-            self.logger.error(
-                f"Error generating arbitrage table: {str(e)}", exc_info=True
-            )
+            print(f"Error generating arbitrage table: {str(e)}")
             return pd.DataFrame()
 
     async def process_game(self, game: dict) -> tuple:
         """Process a single game for arbitrage and +EV opportunities"""
         try:
-            self.logger.debug(
-                f"Processing game: {game['home_team']} vs {game['away_team']}"
-            )
+            print(f"Processing game: {game['home_team']} vs {game['away_team']}")
 
             # Initialize lists to store all odds
             all_odds = []
@@ -802,7 +737,7 @@ class OddsArbitrageFinder:
                 # Process results and store in raw_data
                 for result in results:
                     if isinstance(result, Exception):
-                        self.logger.error(f"Error fetching odds: {str(result)}")
+                        print(f"Error fetching odds: {str(result)}")
                         continue
                     if result:
                         # Process each event's bookmakers and markets
@@ -829,12 +764,14 @@ class OddsArbitrageFinder:
                                         ),
                                         "link": bookmaker.get("link", ""),
                                     }
-                                    
+
                                     # Modify team name for player props to include player name
                                     if "player_" in market.get("key", "").lower():
                                         player_name = outcome.get("description", "")
                                         if player_name:
-                                            row["team"] = f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
+                                            row["team"] = (
+                                                f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
+                                            )
 
                                     rows.append(row)
 
@@ -860,9 +797,7 @@ class OddsArbitrageFinder:
             return opportunities, plus_ev, odds_data
 
         except Exception as e:
-            self.logger.error(
-                f"Error processing game {game.get('id', 'unknown')}: {str(e)}"
-            )
+            print(f"Error processing game {game.get('id', 'unknown')}: {str(e)}")
             return [], [], []
 
     async def get_event_odds(self, sport: str, event_id: str) -> List[dict]:
@@ -956,7 +891,6 @@ class OddsArbitrageFinder:
         """Find arbitrage and low hold opportunities in a game"""
         try:
             opportunities = []
-            logger = logging.getLogger("opportunities_finder")
 
             # Combine all bookmakers
             all_bookmakers = []
@@ -983,7 +917,6 @@ class OddsArbitrageFinder:
 
             for market_type in all_markets:
                 market_type = market_type.lower()  # Convert to lowercase
-                logger.debug(f"Processing market type: {market_type}")
 
                 # Group odds by team and point
                 odds_by_team = {}
@@ -1010,6 +943,7 @@ class OddsArbitrageFinder:
                                     "point": outcome.get("point"),
                                     "link": bm.get("link", ""),
                                     "market_key": market["key"].lower(),
+                                    "description": outcome.get("description", ""),
                                 }
 
                 # Find matching pairs
@@ -1130,6 +1064,15 @@ class OddsArbitrageFinder:
                                         else 0
                                     )
 
+                                    # Extract player name for player props
+                                    player_name = None
+                                    if "player_" in market_type:
+                                        # Try to get player name from description
+                                        if "description" in odds1:
+                                            player_name = odds1["description"]
+                                        elif "description" in odds2:
+                                            player_name = odds2["description"]
+
                                     opportunities.append(
                                         {
                                             "sport": game["sport_title"],
@@ -1159,13 +1102,14 @@ class OddsArbitrageFinder:
                                             ),
                                             "profit_percentage": profit_percentage,
                                             "market_data": market_data,
+                                            "player": player_name,  # Add player name field
                                         }
                                     )
 
             return opportunities
 
         except Exception as e:
-            logger.error(f"Error finding opportunities: {str(e)}", exc_info=True)
+            print(f"Error finding opportunities: {str(e)}")
             return []
 
     async def find_plus_ev_bets(
@@ -1174,7 +1118,6 @@ class OddsArbitrageFinder:
         """Find +EV betting opportunities using Pinnacle as the sharp book"""
         try:
             plus_ev_opportunities = []
-            logger = logging.getLogger("plus_ev_finder")
 
             # Combine bookmakers
             all_bookmakers = []
@@ -1193,7 +1136,7 @@ class OddsArbitrageFinder:
             pinnacle_odds = {}
             for bm in all_bookmakers:
                 if not isinstance(bm, dict) or "title" not in bm:
-                    logger.debug(f"Skipping invalid bookmaker data: {bm}")
+                    print(f"Skipping invalid bookmaker data: {bm}")
                     continue
 
                 if bm["title"].lower() == "pinnacle":
@@ -1374,7 +1317,6 @@ class OddsArbitrageFinder:
 
                                     ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
-
                                     if ev_percentage >= self.ev_threshold:
                                         opportunity = {
                                             "sport": game["sport_title"],
@@ -1391,6 +1333,7 @@ class OddsArbitrageFinder:
                                             "ev_percentage": round(ev_percentage, 2),
                                             "link": bm.get("link", ""),
                                             "market_data": market_data,
+                                            "player": player,  # Add player name field
                                         }
 
                                         plus_ev_opportunities.append(opportunity)
@@ -1398,151 +1341,97 @@ class OddsArbitrageFinder:
             return plus_ev_opportunities
 
         except Exception as e:
-            logger.error(f"Error finding +EV bets: {str(e)}", exc_info=True)
+            print(f"Error finding +EV bets: {str(e)}")
             return []
 
 
 async def get_all_data() -> tuple:
     """Get all odds data, arbitrage, and EV opportunities"""
-    logger = logging.getLogger("data_collector")
 
-    try:
-        # Get API key from environment
-        api_key = os.getenv("ODDS_API_KEY")
-        if not api_key:
-            logger.error("ODDS_API_KEY environment variable not set")
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    api_key = os.getenv("ODDS_API_KEY")
+    if not api_key:
+        raise ValueError("ODDS_API_KEY is not set")
 
-        logger.info("Starting odds data collection...")
+    print("Starting odds data collection...")
 
-        async with OddsArbitrageFinder(api_key) as finder:
-            logger.info("Fetching and analyzing odds data...")
-            arb_df, ev_df = await finder.get_dfs()
-            raw_df = finder.raw_data
+    async with OddsArbitrageFinder(api_key) as finder:
+        print("Fetching and analyzing odds data...")
+        arb_df, ev_df = await finder.get_dfs()
+        raw_df = finder.raw_data
 
-            # Convert timestamps to ISO format
-            current_time = datetime.now(timezone.utc).isoformat()
+        # Convert timestamps to ISO format
+        current_time = datetime.now(timezone.utc).isoformat()
 
-            if not raw_df.empty:
-                raw_df["timestamp"] = current_time
-                raw_df["market_type"] = raw_df["market_type"].replace(
-                    {"spreads": "alternate_spreads", "totals": "alternate_totals"}
-                )
-                raw_df["bet_key"] = raw_df.apply(
-                    lambda row: hashlib.sha256(
-                        (
-                            str(row["game"])
-                            + str(row["team"])
-                            + str(row["market_type"])
-                            + str(row["market_point"])
-                            + str(row["bookmaker"])
-                        ).encode("utf-8")
-                    ).hexdigest(),
-                    axis=1,
-                )
-                raw_df.to_csv("src/findBets/raw_odds_data.csv", index=False)
+        if not raw_df.empty:
+            raw_df["timestamp"] = current_time
+            raw_df["market_type"] = raw_df["market_type"].replace(
+                {"spreads": "alternate_spreads", "totals": "alternate_totals"}
+            )
+            raw_df["bet_key"] = raw_df.apply(
+                lambda row: hashlib.sha256(
+                    (
+                        str(row["game"])
+                        + str(row["team"])
+                        + str(row["market_type"])
+                        + str(row["market_point"])
+                        + str(row["bookmaker"])
+                    ).encode("utf-8")
+                ).hexdigest(),
+                axis=1,
+            )
 
-            if not arb_df.empty:
-                arb_df["timestamp"] = current_time
-                arb_df.loc[
-                    (arb_df["team1_link"].isnull() | (arb_df["team1_link"] == ""))
-                    & arb_df["team1_book"].str.contains("Fanatics"),
-                    "team1_link",
-                ] = "https://sportsbook.fanatics.com/"
-                arb_df.loc[
-                    (arb_df["team2_link"].isnull() | (arb_df["team2_link"] == ""))
-                    & arb_df["team2_book"].str.contains("Fanatics"),
-                    "team2_link",
-                ] = "https://sportsbook.fanatics.com/"
-            if not ev_df.empty:
-                ev_df["timestamp"] = current_time
-                ev_df.loc[
-                    (ev_df["link"].isnull() | (ev_df["link"] == ""))
-                    & ev_df["bookmaker"].str.contains("Fanatics"),
-                    "link",
-                ] = "https://sportsbook.fanatics.com/"
+        if not arb_df.empty:
+            arb_df["timestamp"] = current_time
+            arb_df.loc[
+                (arb_df["team1_link"].isnull() | (arb_df["team1_link"] == ""))
+                & arb_df["team1_book"].str.contains("Fanatics"),
+                "team1_link",
+            ] = "https://sportsbook.fanatics.com/"
+            arb_df.loc[
+                (arb_df["team2_link"].isnull() | (arb_df["team2_link"] == ""))
+                & arb_df["team2_book"].str.contains("Fanatics"),
+                "team2_link",
+            ] = "https://sportsbook.fanatics.com/"
+        if not ev_df.empty:
+            ev_df["timestamp"] = current_time
+            ev_df.loc[
+                (ev_df["link"].isnull() | (ev_df["link"] == ""))
+                & ev_df["bookmaker"].str.contains("Fanatics"),
+                "link",
+            ] = "https://sportsbook.fanatics.com/"
 
-            # Convert DataFrames to JSON-serializable format
-            raw_df = raw_df.astype(object).where(pd.notnull(raw_df), None)
-            arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
-            ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
+        raw_df = raw_df.astype(object).where(pd.notnull(raw_df), None)
+        arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
+        ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
 
-            # Convert to records
-            raw_data = raw_df.to_dict(orient="records")
-            arb_data = arb_df.to_dict(orient="records")
-            ev_data = ev_df.to_dict(orient="records")
+        raw_data = raw_df.to_dict(orient="records")
+        arb_data = arb_df.to_dict(orient="records")
+        ev_data = ev_df.to_dict(orient="records")
 
-            # Convert numpy types to native Python types
-            raw_data = json.loads(json.dumps(raw_data, default=str))
-            arb_data = json.loads(json.dumps(arb_data, default=str))
-            ev_data = json.loads(json.dumps(ev_data, default=str))
+        raw_data = json.loads(json.dumps(raw_data, default=str))
+        arb_data = json.loads(json.dumps(arb_data, default=str))
+        ev_data = json.loads(json.dumps(ev_data, default=str))
 
-            # Convert back to DataFrames
-            raw_df = pd.DataFrame(raw_data)
-            arb_df = pd.DataFrame(arb_data)
-            ev_df = pd.DataFrame(ev_data)
+        raw_df = pd.DataFrame(raw_data, columns=raw_df.columns)
+        arb_df = pd.DataFrame(arb_data, columns=arb_df.columns)
+        ev_df = pd.DataFrame(ev_data, columns=ev_df.columns)
 
-            # Log the results
-            logger.info(f"Found {len(raw_df)} raw odds entries")
-            logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
-            logger.info(f"Found {len(ev_df)} +EV opportunities")
+        print(f"Found {len(raw_df)} raw odds entries")
+        print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+        print(f"Found {len(ev_df)} +EV opportunities")
 
-            return raw_df, arb_df, ev_df
-
-    except Exception as e:
-        logger.error(f"Error collecting odds data: {str(e)}")
-        logger.error(traceback.format_exc())
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return raw_df, arb_df, ev_df
 
 
 async def main():
-    """Main entry point for the application"""
-    # Set up basic logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("main")
+    print("Starting odds finder application...")
 
-    try:
-        logger.info("Starting odds finder application...")
+    raw_df, arb_df, ev_df = await get_all_data()
 
-        # Get all data
-        raw_df, arb_df, ev_df = await get_all_data()
-
-        # Print summary of findings
-        print("\n=== Raw Odds Data ===")
-        if not raw_df.empty:
-            print(f"Total games: {len(raw_df)}")
-            print("\nSample of raw odds:")
-            print(raw_df.head())
-        else:
-            print("No raw odds data found")
-
-        print("\n=== Arbitrage Opportunities ===")
-        if not arb_df.empty:
-            print(f"Total opportunities: {len(arb_df)}")
-            print("\nTop arbitrage opportunities:")
-            print(arb_df.sort_values("profit_percentage", ascending=False).head())
-        else:
-            print("No arbitrage opportunities found")
-
-        print("\n=== +EV Opportunities ===")
-        if not ev_df.empty:
-            print(f"Total opportunities: {len(ev_df)}")
-            print("\nTop EV opportunities:")
-            print(ev_df.sort_values("ev_percentage", ascending=False).head())
-            ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
-        else:
-            print("No +EV opportunities found")
-
-        return 0
-
-    except KeyboardInterrupt:
-        logger.info("Process interrupted by user")
-        return 130
-    except Exception as e:
-        logger.error(f"Error running odds finder: {str(e)}")
-        logger.error(traceback.format_exc())
-        return 1
+    raw_df.to_csv("src/findBets/raw_odds_data.csv", index=False)
+    arb_df.to_csv("src/findBets/arbitrage.csv", index=False)
+    ev_df.to_csv("src/findBets/ev_opportunities.csv", index=False)
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    asyncio.run(main())
