@@ -998,6 +998,7 @@ class OddsArbitrageFinder:
                                         continue
 
                                     bm_title = bm["title"].lower()
+                                    spread_outcomes = []
 
                                     for market in bm.get("markets", []):
                                         if market["key"].lower() != market_type:
@@ -1008,39 +1009,64 @@ class OddsArbitrageFinder:
                                                 continue
 
                                             decimal_odds = outcome["price"]
-                                            american_odds = self.decimal_to_american(
-                                                decimal_odds
-                                            )
+                                            american_odds = self.decimal_to_american(decimal_odds)
 
-                                            # Determine if it's over/under or team1/team2
-                                            if "totals" in market_type:
-                                                side = (
-                                                    "over"
-                                                    if "OVER" in outcome["name"].upper()
-                                                    else "under"
-                                                )
-                                            elif "spreads" in market_type:
-                                                # For spreads, team with positive spread goes in "over", negative in "under"
-                                                outcome_point = float(
-                                                    outcome.get("point", 0) or 0
-                                                )
-                                                side = (
-                                                    "over"
-                                                    if outcome_point > 0
-                                                    else "under"
-                                                )
+                                            # For spreads, collect both outcomes before assigning sides
+                                            if "spreads" in market_type:
+                                                spread_outcomes.append({
+                                                    "name": outcome["name"],
+                                                    "point": outcome.get("point"),
+                                                    "american": american_odds,
+                                                    "decimal": decimal_odds,
+                                                    "link": bm.get("link")
+                                                })
+                                                if len(spread_outcomes) == 2:
+                                                    # Determine favorite based on points or odds
+                                                    point1 = float(spread_outcomes[0].get("point", 0) or 0)
+                                                    point2 = float(spread_outcomes[1].get("point", 0) or 0)
+                                                    
+                                                    # Ensure consistent point assignment
+                                                    if point1 < 0 or (point1 == 0 and spread_outcomes[0]["american"] < 0):
+                                                        # First outcome is favorite
+                                                        market_data["over"]["odds"][bm_title] = {
+                                                            "american": spread_outcomes[0]["american"],
+                                                            "decimal": spread_outcomes[0]["decimal"],
+                                                            "point": point1,
+                                                            "link": spread_outcomes[0]["link"]
+                                                        }
+                                                        market_data["under"]["odds"][bm_title] = {
+                                                            "american": spread_outcomes[1]["american"],
+                                                            "decimal": spread_outcomes[1]["decimal"],
+                                                            "point": -point1,  # Opposite of favorite's spread
+                                                            "link": spread_outcomes[1]["link"]
+                                                        }
+                                                    else:
+                                                        # Second outcome is favorite
+                                                        market_data["over"]["odds"][bm_title] = {
+                                                            "american": spread_outcomes[1]["american"],
+                                                            "decimal": spread_outcomes[1]["decimal"],
+                                                            "point": point2,
+                                                            "link": spread_outcomes[1]["link"]
+                                                        }
+                                                        market_data["under"]["odds"][bm_title] = {
+                                                            "american": spread_outcomes[0]["american"],
+                                                            "decimal": spread_outcomes[0]["decimal"],
+                                                            "point": -point2,  # Opposite of favorite's spread
+                                                            "link": spread_outcomes[0]["link"]
+                                                        }
                                             else:
-                                                side = (
-                                                    "over"
-                                                    if outcome["name"] == odds1["team"]
-                                                    else "under"
-                                                )
+                                                # Handle non-spread markets as before
+                                                if "totals" in market_type:
+                                                    side = "over" if "OVER" in outcome["name"].upper() else "under"
+                                                else:
+                                                    side = "over" if outcome["name"] == odds1["team"] else "under"
 
-                                            market_data[side]["odds"][bm_title] = {
-                                                "american": american_odds,
-                                                "decimal": decimal_odds,
-                                                "link": bm.get("link"),
-                                            }
+                                                market_data[side]["odds"][bm_title] = {
+                                                    "american": american_odds,
+                                                    "decimal": decimal_odds,
+                                                    "point": outcome.get("point"),
+                                                    "link": bm.get("link")
+                                                }
 
                                 prob1 = self.calculate_implied_probability(
                                     odds1["price"]
@@ -1193,23 +1219,27 @@ class OddsArbitrageFinder:
                     pin_american = [odds["american"] for odds in pin_odds_list]
                     fair_odds = power_devig(pin_american)
 
-                    # Initialize market_data based on market type
-                    if "spreads" in market_type:
-                        market_data = {
-                            "fair_odds": {
-                                "odds": {
-                                    "american": fair_odds[0],
-                                }
-                            },
-                            "pinnacle": {
-                                "odds": {
-                                    "american": pin_american[0],
-                                    "decimal": pin_odds_list[0]["price"],
-                                }
-                            },
+                    # Initialize market_data
+                    market_data = {
+                        "over": {"odds": {}},
+                        "under": {"odds": {}}
+                    }
+
+                    # Add Pinnacle odds to market_data
+                    for idx, pin_odd in enumerate(pin_odds_list):
+                        side = "over" if idx == 0 else "under"
+                        point_value = float(pin_odd.get("point", 0) or 0)
+                        
+                        # For spreads, ensure under side gets opposite point value
+                        if "spreads" in market_type and side == "under":
+                            point_value = -point_value
+                            
+                        market_data[side]["odds"]["pinnacle"] = {
+                            "american": pin_odd["american"],
+                            "decimal": pin_odd["price"],
+                            "point": point_value,
+                            "link": None
                         }
-                    else:
-                        market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
 
                     for bm in all_bookmakers:
                         if not isinstance(bm, dict) or "title" not in bm:
@@ -1219,16 +1249,15 @@ class OddsArbitrageFinder:
                         if bm_title == "pinnacle":
                             continue
 
+                        spread_outcomes = []
+
                         for market in bm.get("markets", []):
                             if market["key"].lower() != market_type:
                                 continue
 
                             for outcome in market["outcomes"]:
                                 # Match point and player (if prop)
-                                if (
-                                    point != "0"
-                                    and str(outcome.get("point", "0")) != point
-                                ):
+                                if point != "0" and str(outcome.get("point", "0")) != point:
                                     continue
                                 if player and player != outcome.get("description", ""):
                                     continue
@@ -1236,17 +1265,51 @@ class OddsArbitrageFinder:
                                 decimal_odds = outcome["price"]
                                 american_odds = self.decimal_to_american(decimal_odds)
 
-                                # Handle market data differently for spreads vs other markets
+                                # For spreads, collect both outcomes before assigning sides
                                 if "spreads" in market_type:
-                                    market_data[bm_title] = {
-                                        "odds": {
-                                            "american": american_odds,
-                                            "decimal": decimal_odds,
-                                            "link": bm.get("link"),
-                                        }
-                                    }
+                                    spread_outcomes.append({
+                                        "name": outcome["name"],
+                                        "point": outcome.get("point"),
+                                        "american": american_odds,
+                                        "decimal": decimal_odds,
+                                        "link": bm.get("link")
+                                    })
+                                    if len(spread_outcomes) == 2:
+                                        # Determine favorite based on points or odds
+                                        point1 = float(spread_outcomes[0].get("point", 0) or 0)
+                                        point2 = float(spread_outcomes[1].get("point", 0) or 0)
+                                        
+                                        # Ensure consistent point assignment
+                                        if point1 < 0 or (point1 == 0 and spread_outcomes[0]["american"] < 0):
+                                            # First outcome is favorite
+                                            market_data["over"]["odds"][bm_title] = {
+                                                "american": spread_outcomes[0]["american"],
+                                                "decimal": spread_outcomes[0]["decimal"],
+                                                "point": point1,
+                                                "link": spread_outcomes[0]["link"]
+                                            }
+                                            market_data["under"]["odds"][bm_title] = {
+                                                "american": spread_outcomes[1]["american"],
+                                                "decimal": spread_outcomes[1]["decimal"],
+                                                "point": -point1,  # Opposite of favorite's spread
+                                                "link": spread_outcomes[1]["link"]
+                                            }
+                                        else:
+                                            # Second outcome is favorite
+                                            market_data["over"]["odds"][bm_title] = {
+                                                "american": spread_outcomes[1]["american"],
+                                                "decimal": spread_outcomes[1]["decimal"],
+                                                "point": point2,
+                                                "link": spread_outcomes[1]["link"]
+                                            }
+                                            market_data["under"]["odds"][bm_title] = {
+                                                "american": spread_outcomes[0]["american"],
+                                                "decimal": spread_outcomes[0]["decimal"],
+                                                "point": -point2,  # Opposite of favorite's spread
+                                                "link": spread_outcomes[0]["link"]
+                                            }
                                 else:
-                                    # Determine side (over/under) for non-spread markets
+                                    # Handle non-spread markets
                                     if "totals" in market_type or any(
                                         prop in market_type
                                         for prop in [
@@ -1260,23 +1323,15 @@ class OddsArbitrageFinder:
                                             "receptions",
                                         ]
                                     ):
-                                        side = (
-                                            "over"
-                                            if "OVER" in outcome["name"].upper()
-                                            else "under"
-                                        )
+                                        side = "over" if "OVER" in outcome["name"].upper() else "under"
                                     else:
-                                        side = (
-                                            "over"
-                                            if outcome["name"]
-                                            == pin_odds_list[0]["team"]
-                                            else "under"
-                                        )
+                                        side = "over" if outcome["name"] == pin_odds_list[0]["team"] else "under"
 
                                     market_data[side]["odds"][bm_title] = {
                                         "american": american_odds,
                                         "decimal": decimal_odds,
-                                        "link": bm.get("link"),
+                                        "point": outcome.get("point"),
+                                        "link": bm.get("link")
                                     }
 
                                 # Match the outcome to the correct fair odds
