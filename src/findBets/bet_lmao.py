@@ -468,6 +468,12 @@ class OddsArbitrageFinder:
                                     "link": bookmaker.get("link", ""),
                                 }
 
+                                # Format team name for player props to include player name
+                                if "player_" in market.get("key", "").lower():
+                                    player_name = outcome.get("description", "")
+                                    if player_name:
+                                        row["team"] = f"{player_name} {'Over' if 'OVER' in outcome['name'].upper() else 'Under'}"
+
                                 # Add market data for spreads
                                 if "spreads" in market.get("key", "").lower():
                                     market_data = {"team1": {"odds": {}}, "team2": {"odds": {}}}
@@ -813,6 +819,17 @@ class OddsArbitrageFinder:
                                         ),
                                         "link": bookmaker.get("link", ""),
                                     }
+
+                                    # Format team name for player props to include player name
+                                    if "player_" in market.get("key", "").lower():
+                                        player_name = outcome.get("description", "")
+                                        if player_name:
+                                            row["team"] = f"{player_name} {'Over' if 'OVER' in outcome['name'].upper() else 'Under'}"
+
+                                    # Add market data for spreads
+                                    if "spreads" in market.get("key", "").lower():
+                                        row["market_data"] = market_data
+
                                     rows.append(row)
 
                         if rows:
@@ -952,10 +969,9 @@ class OddsArbitrageFinder:
             ]
 
             # Process all market types
-            all_markets = (
-                self.featured_markets 
-                + self.alternate_markets 
-                + self.player_props.get(game["sport_title"].upper(), [])
+            all_markets = self.featured_markets + self.alternate_markets + self.player_props.get(
+                game["sport_key"].upper().split("_")[1] if "_" in game["sport_key"] else game["sport_key"].upper(), 
+                []
             )
 
             for market_type in all_markets:
@@ -1049,30 +1065,17 @@ class OddsArbitrageFinder:
                                                 decimal_odds
                                             )
 
-                                            # Determine if it's over/under or team1/team2
-                                            if "totals" in market_type:
-                                                side = (
-                                                    "over"
-                                                    if "OVER" in outcome["name"].upper()
-                                                    else "under"
-                                                )
-                                            elif "spreads" in market_type:
-                                                # For spreads, team with positive spread goes in "over", negative in "under"
-                                                outcome_point = float(
-                                                    outcome.get(
-                                                        "point", 0) or 0
-                                                )
-                                                side = (
-                                                    "over"
-                                                    if outcome_point > 0
-                                                    else "under"
-                                                )
+                                            # Determine side (over/under)
+                                            if "totals" in market_type or any(prop in market_type for prop in ["points", "rebounds", "assists", "threes", "shots", "goals", "yards", "receptions"]):
+                                                side = "over" if "OVER" in outcome["name"].upper() else "under"
+                                                # For player props, include player name in the team name
+                                                if "player_" in market_type:
+                                                    team = f"{outcome.get('description', '')} {'Over' if side == 'over' else 'Under'}"
+                                                else:
+                                                    team = outcome["name"]
                                             else:
-                                                side = (
-                                                    "over"
-                                                    if outcome["name"] == odds1["team"]
-                                                    else "under"
-                                                )
+                                                side = "over" if outcome["name"] == odds1["team"] else "under"
+                                                team = outcome["name"]
 
                                             market_data[side]["odds"][bm_title] = {
                                                 "american": american_odds,
@@ -1189,7 +1192,10 @@ class OddsArbitrageFinder:
                             pinnacle_odds[market_key].append(outcome_data)
 
             # Process each market type
-            all_markets = self.featured_markets + self.alternate_markets + self.player_props.get(game["sport_title"].upper(), [])
+            all_markets = self.featured_markets + self.alternate_markets + self.player_props.get(
+                game["sport_key"].upper().split("_")[1] if "_" in game["sport_key"] else game["sport_key"].upper(), 
+                []
+            )
             
             for market_type in all_markets:
                 market_type = market_type.lower()  # Convert to lowercase
@@ -1218,7 +1224,20 @@ class OddsArbitrageFinder:
                     fair_odds = power_devig(pin_american)
 
                     # Collect all bookmaker odds for this market point/player
-                    market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
+                    market_data = {
+                        "over": {
+                            "odds": {
+                                "fair_odds": {"american": fair_odds[0]},
+                                "pinnacle": {"american": pin_american[0]},
+                            }
+                        }, 
+                        "under": {
+                            "odds": {
+                                "fair_odds": {"american": fair_odds[1]},
+                                "pinnacle": {"american": pin_american[1]},
+                            }
+                        }
+                    }
 
                     for bm in all_bookmakers:
                         if not isinstance(bm, dict) or "title" not in bm:
@@ -1280,25 +1299,21 @@ class OddsArbitrageFinder:
                                     ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
                                     if ev_percentage >= self.ev_threshold:
+                                        team = f"{outcome['description']} {'Over' if side == 'over' else 'Under'}"
                                         opportunity = {
                                             "sport": game["sport_title"],
                                             "market_type": market_type,
                                             "market_point": point if point != "0" else None,
                                             "game": f"{game['home_team']} vs {game['away_team']}",
                                             "commence_time": game["commence_time"],
-                                            "team": outcome["name"],
+                                            "team": team,
                                             "bookmaker": bm["title"],
                                             "odds": american_odds,
                                             "fair_odds": fair_odd,
                                             "ev_percentage": round(ev_percentage, 2),
                                             "link": bm.get("link", ""),
-                                            "market_data": market_data,
+                                            "market_data": market_data
                                         }
-                                        
-                                        # Add player name for props
-                                        if player:
-                                            opportunity["player"] = player
-                                            
                                         plus_ev_opportunities.append(opportunity)
 
             return plus_ev_opportunities
