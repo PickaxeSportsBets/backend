@@ -987,10 +987,17 @@ class OddsArbitrageFinder:
                                 processed_pairs.add(pair_key)
 
                                 # Collect all bookmaker odds for this market point
-                                market_data = {
-                                    "over": {"odds": {}},
-                                    "under": {"odds": {}},
-                                }
+                                market_data = {}
+                                if "h2h" in market_type:
+                                    market_data = {
+                                        "team1": {"odds": {}},
+                                        "team2": {"odds": {}},
+                                    }
+                                else:
+                                    market_data = {
+                                        "over": {"odds": {}},
+                                        "under": {"odds": {}},
+                                    }
                                 point = odds1.get("point")
 
                                 for bm in all_bookmakers:
@@ -1055,8 +1062,10 @@ class OddsArbitrageFinder:
                                                             "link": spread_outcomes[0]["link"]
                                                         }
                                             else:
-                                                # Handle non-spread markets as before
-                                                if "totals" in market_type:
+                                                # Handle non-spread markets
+                                                if "h2h" in market_type:
+                                                    side = "team1" if outcome["name"] == odds1["team"] else "team2"
+                                                elif "totals" in market_type:
                                                     side = "over" if "OVER" in outcome["name"].upper() else "under"
                                                 else:
                                                     side = "over" if outcome["name"] == odds1["team"] else "under"
@@ -1220,14 +1229,25 @@ class OddsArbitrageFinder:
                     fair_odds = power_devig(pin_american)
 
                     # Initialize market_data
-                    market_data = {
-                        "over": {"odds": {}},
-                        "under": {"odds": {}}
-                    }
+                    market_data = {}
+                    if "h2h" in market_type:
+                        market_data = {
+                            "team1": {"odds": {}},
+                            "team2": {"odds": {}},
+                        }
+                    else:
+                        market_data = {
+                            "over": {"odds": {}},
+                            "under": {"odds": {}},
+                        }
 
                     # Add Pinnacle odds to market_data
                     for idx, pin_odd in enumerate(pin_odds_list):
-                        side = "over" if idx == 0 else "under"
+                        if "h2h" in market_type:
+                            side = "team1" if idx == 0 else "team2"
+                        else:
+                            side = "over" if idx == 0 else "under"
+                            
                         point_value = float(pin_odd.get("point", 0) or 0)
                         
                         # For spreads, ensure under side gets opposite point value
@@ -1310,7 +1330,9 @@ class OddsArbitrageFinder:
                                             }
                                 else:
                                     # Handle non-spread markets
-                                    if "totals" in market_type or any(
+                                    if "h2h" in market_type:
+                                        side = "team1" if outcome["name"] == pin_odds_list[0]["team"] else "team2"
+                                    elif "totals" in market_type or any(
                                         prop in market_type
                                         for prop in [
                                             "points",
