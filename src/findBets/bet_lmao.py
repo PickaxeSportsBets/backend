@@ -291,7 +291,8 @@ class OddsArbitrageFinder:
 
     async def get_player_props(self, sport: str, event_id: str) -> List[dict]:
         """Fetch player props for a specific event"""
-        sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
+        sport_name = sport.upper().split(
+            "_")[1] if "_" in sport else sport.upper()
         logger = logging.getLogger("player_props")
 
         if sport_name not in self.player_props:
@@ -306,7 +307,7 @@ class OddsArbitrageFinder:
         all_bookmakers = []
 
         for i in range(0, len(prop_markets), batch_size):
-            market_batch = prop_markets[i : i + batch_size]
+            market_batch = prop_markets[i: i + batch_size]
             logger.debug(f"Fetching market batch: {market_batch}")
 
             url = f"{self.base_url}/{sport}/events/{event_id}/odds"
@@ -353,7 +354,8 @@ class OddsArbitrageFinder:
         """Process player props data"""
         logger = logging.getLogger("player_props_processor")
         markets = {}
-        sport_name = sport.upper().split("_")[1] if "_" in sport else sport.upper()
+        sport_name = sport.upper().split(
+            "_")[1] if "_" in sport else sport.upper()
         prop_markets = self.player_props.get(sport_name, [])
 
         logger.info(f"Processing player props for {sport_name}")
@@ -425,7 +427,8 @@ class OddsArbitrageFinder:
     async def get_featured_odds(self, sport: str) -> List[dict]:
         """Fetch odds for featured markets"""
         logger = logging.getLogger("featured_odds")
-        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_time = datetime.now(
+            timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{self.base_url}/{sport}/odds"
 
         params = {
@@ -467,30 +470,16 @@ class OddsArbitrageFinder:
 
                                 # Add market data for spreads
                                 if "spreads" in market.get("key", "").lower():
-                                    market_data = {
-                                        "team1": {"odds": {}},
-                                        "team2": {"odds": {}},
-                                    }
+                                    market_data = {"team1": {"odds": {}}, "team2": {"odds": {}}}
                                     for bm in event.get("bookmakers", []):
-                                        if bm["title"].lower() not in [
-                                            b.lower() for b in self.bookmakers
-                                        ]:
+                                        if bm["title"].lower() not in [b.lower() for b in self.bookmakers]:
                                             continue
                                         for mkt in bm.get("markets", []):
                                             if mkt["key"] == market["key"]:
                                                 for out in mkt["outcomes"]:
-                                                    side = (
-                                                        "team1"
-                                                        if out["name"]
-                                                        == outcome["name"]
-                                                        else "team2"
-                                                    )
-                                                    market_data[side]["odds"][
-                                                        bm["title"].lower()
-                                                    ] = {
-                                                        "american": self.decimal_to_american(
-                                                            out["price"]
-                                                        ),
+                                                    side = "team1" if out["name"] == outcome["name"] else "team2"
+                                                    market_data[side]["odds"][bm["title"].lower()] = {
+                                                        "american": self.decimal_to_american(out["price"]),
                                                         "decimal": out["price"],
                                                         "point": out.get("point"),
                                                         "link": bm.get("link"),
@@ -509,48 +498,42 @@ class OddsArbitrageFinder:
 
                                 # Create DataFrame with explicit dtypes
                                 row_df = pd.DataFrame([row], columns=list(row.keys()))
-                                row_df = row_df.astype(
-                                    {
-                                        "id": str,
-                                        "sport_key": str,
-                                        "sport_title": str,
-                                        "commence_time": str,
-                                        "home_team": str,
-                                        "away_team": str,
-                                        "sport": str,
-                                        "timestamp": "datetime64[ns, UTC]",
-                                        "game": str,
-                                        "team": str,
-                                        "market_type": str,
-                                        "market_point": "float64",
-                                        "bookmaker": str,
-                                        "odds": "int64",
-                                        "link": str,
-                                        "bet_key": str,
-                                    }
-                                )
+                                row_df = row_df.astype({
+                                    'id': str,
+                                    'sport_key': str,
+                                    'sport_title': str,
+                                    'commence_time': str,
+                                    'home_team': str,
+                                    'away_team': str,
+                                    'sport': str,
+                                    'timestamp': 'datetime64[ns, UTC]',
+                                    'game': str,
+                                    'team': str,
+                                    'market_type': str,
+                                    'market_point': 'float64',
+                                    'bookmaker': str,
+                                    'odds': 'int64',
+                                    'link': str,
+                                    'bet_key': str
+                                })
 
                                 if self.raw_data.empty:
                                     self.raw_data = row_df
                                 else:
                                     # Ensure both DataFrames have the same columns
-                                    missing_cols = set(row_df.columns) - set(
-                                        self.raw_data.columns
-                                    )
+                                    missing_cols = set(row_df.columns) - set(self.raw_data.columns)
                                     for col in missing_cols:
                                         self.raw_data[col] = None
-
-                                    missing_cols = set(self.raw_data.columns) - set(
-                                        row_df.columns
-                                    )
+                                    
+                                    missing_cols = set(self.raw_data.columns) - set(row_df.columns)
                                     for col in missing_cols:
                                         row_df[col] = None
-
+                                    
                                     # Concatenate with explicit columns to maintain dtype consistency
                                     self.raw_data = pd.concat(
                                         [self.raw_data, row_df],
                                         ignore_index=True,
-                                        axis=0,
+                                        axis=0
                                     )
 
                 # Log bookmaker information
@@ -559,7 +542,8 @@ class OddsArbitrageFinder:
                     for bm in event.get("bookmakers", []):
                         bookmakers_found.add(bm.get("title", "").lower())
 
-                logger.info(f"Found data from bookmakers: {sorted(bookmakers_found)}")
+                logger.info(
+                    f"Found data from bookmakers: {sorted(bookmakers_found)}")
                 missing_books = (
                     set(b.lower() for b in self.bookmakers) - bookmakers_found
                 )
@@ -578,7 +562,8 @@ class OddsArbitrageFinder:
             # Generate arbitrage table
             self.logger.info("Generating arbitrage opportunities table...")
             arb_df = await self.generate_arbitrage_table()
-            self.logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            self.logger.info(
+                f"Found {len(arb_df)} arbitrage/low hold opportunities")
 
             # Create EV DataFrame
             self.logger.info("Processing +EV opportunities...")
@@ -637,7 +622,8 @@ class OddsArbitrageFinder:
                 ev_df["timestamp"] = current_time
 
             # Convert DataFrames to JSON-serializable format
-            raw_df = self.raw_data.astype(object).where(pd.notnull(self.raw_data), None)
+            raw_df = self.raw_data.astype(object).where(
+                pd.notnull(self.raw_data), None)
             arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
             ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
 
@@ -681,13 +667,16 @@ class OddsArbitrageFinder:
                     self.logger.info(
                         f"Received data for {sport}: {len(featured_odds)} games"
                     )
-                    all_featured_odds.extend([(sport, game) for game in featured_odds])
+                    all_featured_odds.extend(
+                        [(sport, game) for game in featured_odds])
                 else:
                     self.logger.warning(f"No odds data received for {sport}")
 
             # Process all games concurrently
-            self.logger.info(f"Processing {len(all_featured_odds)} total games...")
-            game_tasks = [self.process_game(game) for _, game in all_featured_odds]
+            self.logger.info(
+                f"Processing {len(all_featured_odds)} total games...")
+            game_tasks = [self.process_game(game)
+                          for _, game in all_featured_odds]
             all_results = await asyncio.gather(*game_tasks)
 
             # Collect results
@@ -796,7 +785,8 @@ class OddsArbitrageFinder:
                 # Process results and store in raw_data
                 for result in results:
                     if isinstance(result, Exception):
-                        self.logger.error(f"Error fetching odds: {str(result)}")
+                        self.logger.error(
+                            f"Error fetching odds: {str(result)}")
                         continue
                     if result:
                         # Process each event's bookmakers and markets
@@ -963,8 +953,8 @@ class OddsArbitrageFinder:
 
             # Process all market types
             all_markets = (
-                self.featured_markets
-                + self.alternate_markets
+                self.featured_markets 
+                + self.alternate_markets 
                 + self.player_props.get(game["sport_title"].upper(), [])
             )
 
@@ -1021,17 +1011,12 @@ class OddsArbitrageFinder:
                         elif "totals" in market_type or "player_" in market_type:
                             if odds1.get("point") == odds2.get("point"):
                                 valid_pair = (
-                                    "OVER" in odds1["team"].upper()
-                                    and "UNDER" in odds2["team"].upper()
-                                ) or (
-                                    "UNDER" in odds1["team"].upper()
-                                    and "OVER" in odds2["team"].upper()
+                                    ("OVER" in odds1["team"].upper() and "UNDER" in odds2["team"].upper())
+                                    or ("UNDER" in odds1["team"].upper() and "OVER" in odds2["team"].upper())
                                 )
                                 # For player props, also check if they're for the same player
                                 if valid_pair and "player_" in market_type:
-                                    valid_pair = odds1.get("description") == odds2.get(
-                                        "description"
-                                    )
+                                    valid_pair = odds1.get("description") == odds2.get("description")
 
                         if valid_pair:
                             pair_key = tuple(sorted([key1, key2]))
@@ -1074,7 +1059,8 @@ class OddsArbitrageFinder:
                                             elif "spreads" in market_type:
                                                 # For spreads, team with positive spread goes in "over", negative in "under"
                                                 outcome_point = float(
-                                                    outcome.get("point", 0) or 0
+                                                    outcome.get(
+                                                        "point", 0) or 0
                                                 )
                                                 side = (
                                                     "over"
@@ -1152,7 +1138,8 @@ class OddsArbitrageFinder:
             return opportunities
 
         except Exception as e:
-            logger.error(f"Error finding opportunities: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error finding opportunities: {str(e)}", exc_info=True)
             return []
 
     async def find_plus_ev_bets(
@@ -1189,7 +1176,7 @@ class OddsArbitrageFinder:
                         market_key = market["key"].lower()
                         if market_key not in pinnacle_odds:
                             pinnacle_odds[market_key] = []
-
+                        
                         # For props, include description (player name) in the key
                         for outcome in market["outcomes"]:
                             outcome_data = {
@@ -1197,19 +1184,13 @@ class OddsArbitrageFinder:
                                 "price": outcome["price"],
                                 "point": outcome.get("point"),
                                 "american": self.decimal_to_american(outcome["price"]),
-                                "description": outcome.get(
-                                    "description", ""
-                                ),  # Include player name
+                                "description": outcome.get("description", "")  # Include player name
                             }
                             pinnacle_odds[market_key].append(outcome_data)
 
             # Process each market type
-            all_markets = (
-                self.featured_markets
-                + self.alternate_markets
-                + self.player_props.get(game["sport_title"].upper(), [])
-            )
-
+            all_markets = self.featured_markets + self.alternate_markets + self.player_props.get(game["sport_title"].upper(), [])
+            
             for market_type in all_markets:
                 market_type = market_type.lower()  # Convert to lowercase
                 if market_type not in pinnacle_odds:
@@ -1249,7 +1230,7 @@ class OddsArbitrageFinder:
                                     "american": pin_american[0],
                                     "decimal": pin_odds_list[0]["price"],
                                 }
-                            },
+                            }
                         }
                     else:
                         market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -1268,10 +1249,7 @@ class OddsArbitrageFinder:
 
                             for outcome in market["outcomes"]:
                                 # Match point and player (if prop)
-                                if (
-                                    point != "0"
-                                    and str(outcome.get("point", "0")) != point
-                                ):
+                                if point != "0" and str(outcome.get("point", "0")) != point:
                                     continue
                                 if player and player != outcome.get("description", ""):
                                     continue
@@ -1290,31 +1268,10 @@ class OddsArbitrageFinder:
                                     }
                                 else:
                                     # Determine side (over/under) for non-spread markets
-                                    if "totals" in market_type or any(
-                                        prop in market_type
-                                        for prop in [
-                                            "points",
-                                            "rebounds",
-                                            "assists",
-                                            "threes",
-                                            "shots",
-                                            "goals",
-                                            "yards",
-                                            "receptions",
-                                        ]
-                                    ):
-                                        side = (
-                                            "over"
-                                            if "OVER" in outcome["name"].upper()
-                                            else "under"
-                                        )
+                                    if "totals" in market_type or any(prop in market_type for prop in ["points", "rebounds", "assists", "threes", "shots", "goals", "yards", "receptions"]):
+                                        side = "over" if "OVER" in outcome["name"].upper() else "under"
                                     else:
-                                        side = (
-                                            "over"
-                                            if outcome["name"]
-                                            == pin_odds_list[0]["team"]
-                                            else "under"
-                                        )
+                                        side = "over" if outcome["name"] == pin_odds_list[0]["team"] else "under"
 
                                     market_data[side]["odds"][bm_title] = {
                                         "american": american_odds,
@@ -1323,25 +1280,13 @@ class OddsArbitrageFinder:
                                     }
 
                                 # Match the outcome to the correct fair odds
-                                idx = (
-                                    0
-                                    if ("spreads" in market_type or side == "over")
-                                    else 1
-                                )
+                                idx = 0 if ("spreads" in market_type or side == "over") else 1
                                 fair_odd = fair_odds[idx]
 
                                 # Check if odds are +EV
                                 is_better = (
-                                    (
-                                        american_odds > 0
-                                        and fair_odd > 0
-                                        and american_odds > fair_odd
-                                    )
-                                    or (
-                                        american_odds < 0
-                                        and fair_odd < 0
-                                        and american_odds > fair_odd
-                                    )
+                                    (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
+                                    or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
                                     or (american_odds > 0 and fair_odd < 0)
                                 )
 
@@ -1355,24 +1300,18 @@ class OddsArbitrageFinder:
                                     if fair_odd > 0:
                                         fair_prob = 100 / (fair_odd + 100)
                                     else:
-                                        fair_prob = abs(fair_odd) / (
-                                            abs(fair_odd) + 100
-                                        )
+                                        fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
 
                                     ev_percentage = (decimal_odds * fair_prob - 1) * 100
-
-                                    team = f"{outcome['description']} {'Over' if side == 'over' else 'Under'}"
 
                                     if ev_percentage >= self.ev_threshold:
                                         opportunity = {
                                             "sport": game["sport_title"],
                                             "market_type": market_type,
-                                            "market_point": (
-                                                point if point != "0" else None
-                                            ),
+                                            "market_point": point if point != "0" else None,
                                             "game": f"{game['home_team']} vs {game['away_team']}",
                                             "commence_time": game["commence_time"],
-                                            "team": team,
+                                            "team": outcome["name"],
                                             "bookmaker": bm["title"],
                                             "odds": american_odds,
                                             "fair_odds": fair_odd,
@@ -1380,7 +1319,11 @@ class OddsArbitrageFinder:
                                             "link": bm.get("link", ""),
                                             "market_data": market_data,
                                         }
-
+                                        
+                                        # Add player name for props
+                                        if player:
+                                            opportunity["player"] = player
+                                            
                                         plus_ev_opportunities.append(opportunity)
 
             return plus_ev_opportunities
@@ -1433,12 +1376,14 @@ async def get_all_data() -> tuple:
             if not arb_df.empty:
                 arb_df["timestamp"] = current_time
                 arb_df.loc[
-                    (arb_df["team1_link"].isnull() | (arb_df["team1_link"] == ""))
+                    (arb_df["team1_link"].isnull()
+                     | (arb_df["team1_link"] == ""))
                     & arb_df["team1_book"].str.contains("Fanatics"),
                     "team1_link",
                 ] = "https://sportsbook.fanatics.com/"
                 arb_df.loc[
-                    (arb_df["team2_link"].isnull() | (arb_df["team2_link"] == ""))
+                    (arb_df["team2_link"].isnull()
+                     | (arb_df["team2_link"] == ""))
                     & arb_df["team2_book"].str.contains("Fanatics"),
                     "team2_link",
                 ] = "https://sportsbook.fanatics.com/"
@@ -1472,7 +1417,8 @@ async def get_all_data() -> tuple:
 
             # Log the results
             logger.info(f"Found {len(raw_df)} raw odds entries")
-            logger.info(f"Found {len(arb_df)} arbitrage/low hold opportunities")
+            logger.info(
+                f"Found {len(arb_df)} arbitrage/low hold opportunities")
             logger.info(f"Found {len(ev_df)} +EV opportunities")
 
             return raw_df, arb_df, ev_df
