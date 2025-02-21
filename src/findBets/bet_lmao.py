@@ -13,6 +13,7 @@ from collections import deque
 from datetime import datetime, timedelta
 import traceback
 from pathlib import Path
+import uuid
 
 
 class RateLimiter:
@@ -541,38 +542,16 @@ class OddsArbitrageFinder:
             if not ev_df.empty:
                 print(f"Found {len(ev_df)} +EV opportunities")
                 # Ensure consistent primary key generation between raw and EV data
-                ev_df["primary_key"] = ev_df.apply(
-                    lambda row: hashlib.sha256(
-                        (
-                            str(row["game"])
-                            + str(row["team"])
-                            + str(row["market_type"])
-                            + str(row["market_point"])
-                            + str(row["bookmaker"])
-                            + str(row["player"])
-                        ).encode("utf-8")
-                    ).hexdigest(),
-                    axis=1,
-                )
+                ev_df["primary_key"] = [str(uuid.uuid4())
+                                        for _ in range(len(ev_df))]
                 ev_df["timestamp"] = datetime.now(timezone.utc)
             else:
                 print("No +EV opportunities found")
 
             if not arb_df.empty:
-                arb_df["primary_key"] = (
-                    arb_df["market_type"].astype(str)
-                    + arb_df["game"].astype(str)
-                    + arb_df["team1_name"].astype(str)
-                    + arb_df["team2_name"].astype(str)
-                    + arb_df["commence_time"].astype(str)
-                    + arb_df["team1_book"].astype(str)
-                    + arb_df["team2_book"].astype(str)
-                    + arb_df["team1_odds"].astype(str)
-                    + arb_df["team2_odds"].astype(str)
-                    + arb_df["market_type"].astype(str)
-                    + arb_df["player"].fillna("").astype(str)
-                    + (arb_df["prop_description"].fillna("").astype(str))
-                ).apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest())
+                arb_df["primary_key"] = [str(uuid.uuid4())
+                                         for _ in range(len(arb_df))]
+                arb_df["timestamp"] = datetime.now(timezone.utc)
 
             # Save raw data
             # if not self.raw_data.empty:
