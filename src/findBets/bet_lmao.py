@@ -1007,24 +1007,22 @@ class OddsArbitrageFinder:
 
                                         for outcome in market["outcomes"]:
                                             # For spreads, ensure points match or are opposites
-                                            outcome_point = outcome.get("point")
+                                            outcome_point = float(outcome.get("point", 0) or 0)
                                             if "spreads" in market_type:
-                                                if point is not None and outcome_point is not None:
-                                                    if not (abs(float(point) + float(outcome_point)) <= 0.1 or abs(float(point) - float(outcome_point)) <= 0.1):
+                                                if point is not None:
+                                                    point_float = float(point)
+                                                    if not (abs(outcome_point - point_float) <= 0.1 or abs(outcome_point + point_float) <= 0.1):
                                                         continue
-                                            elif point != outcome_point:
+                                            elif point != outcome.get("point"):
                                                 continue
 
                                             decimal_odds = outcome["price"]
                                             american_odds = self.decimal_to_american(decimal_odds)
 
                                             # Determine side (over/under)
-                                            if "totals" in market_type or "player_" in market_type:
-                                                side = "over" if "OVER" in outcome["name"].upper() else "under"
-                                            elif "spreads" in market_type:
-                                                outcome_point = float(outcome.get("point", 0) or 0)
-                                                side = "over" if outcome_point > 0 else "under"
-                                            else:  # h2h
+                                            if "spreads" in market_type:
+                                                side = "over" if outcome_point > 0 or (outcome_point == 0 and outcome["name"] == odds1["team"]) else "under"
+                                            else:
                                                 side = "over" if outcome["name"] == odds1["team"] else "under"
 
                                             market_data[side]["odds"][bm_title] = {
@@ -1034,12 +1032,20 @@ class OddsArbitrageFinder:
                                                 "link": bm.get("link", "")
                                             }
 
-                                # Ensure both sides have the same bookmakers
+                                # Ensure both sides have the same bookmakers with valid data
                                 all_bookmakers_used = set(market_data["over"]["odds"].keys()) | set(market_data["under"]["odds"].keys())
                                 for side in ["over", "under"]:
                                     for bm in all_bookmakers_used:
-                                        if bm not in market_data[side]["odds"]:
-                                            market_data[side]["odds"][bm] = None
+                                        if bm not in market_data[side]["odds"] or market_data[side]["odds"][bm] is None:
+                                            other_side = "under" if side == "over" else "over"
+                                            if bm in market_data[other_side]["odds"] and market_data[other_side]["odds"][bm] is not None:
+                                                other_data = market_data[other_side]["odds"][bm].copy()
+                                                if "spreads" in market_type and other_data["point"] is not None:
+                                                    other_data["point"] = -float(other_data["point"])
+                                                market_data[side]["odds"][bm] = other_data
+                                            else:
+                                                market_data["over"]["odds"].pop(bm, None)
+                                                market_data["under"]["odds"].pop(bm, None)
 
                                 prob1 = self.calculate_implied_probability(
                                     odds1["price"]
@@ -1192,33 +1198,31 @@ class OddsArbitrageFinder:
                     pin_american = [odds["american"] for odds in pin_odds_list]
                     fair_odds = power_devig(pin_american)
 
-                    # Initialize market_data based on market type
+                    # For spreads, ensure points are properly formatted
+                    if "spreads" in market_type:
+                        for pin_odd in pin_odds_list:
+                            pin_odd["point"] = float(pin_odd.get("point", 0) or 0)
+                        
+                        # Ensure points are opposites
+                        if abs(pin_odds_list[0]["point"] + pin_odds_list[1]["point"]) <= 0.1:
+                            point2 = -pin_odds_list[0]["point"]
+                            pin_odds_list[1]["point"] = point2
+
+                    # Initialize market_data with proper structure
                     market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
 
                     # Add Pinnacle odds first
-                    pin_link = next((bm.get("link", "") for bm in all_bookmakers if bm.get("title", "").lower() == "pinnacle"), "")
-                    
-                    # Sort pin_odds_list so the first one is always the over/positive side
-                    pin_odds_list.sort(key=lambda x: float(x.get("point", 0) or 0) if x.get("point") is not None else 0, reverse=True)
-                    
-                    for i, pin_odd in enumerate(pin_odds_list):
-                        side = "over" if i == 0 else "under"
-                        point_value = float(pin_odd.get("point", 0) or 0) if pin_odd.get("point") is not None else 0
-                        # For under side, make point negative if it's not already
-                        if side == "under" and point_value > 0:
-                            point_value = -point_value
-                        elif side == "over" and point_value < 0:
-                            point_value = abs(point_value)
-                            
+                    for pin_odd in pin_odds_list:
+                        side = "over" if pin_odd == pin_odds_list[0] else "under"
                         market_data[side]["odds"]["pinnacle"] = {
                             "american": self.decimal_to_american(pin_odd["price"]),
                             "decimal": pin_odd["price"],
-                            "point": point_value,
-                            "link": pin_link
+                            "point": pin_odd["point"],
+                            "link": "https://www.pinnacle.com/en/betting"  # Add Pinnacle's base URL
                         }
 
-                    # Track available bookmakers to ensure consistency
-                    available_bookmakers = {"pinnacle"}
+                    # Track all bookmakers that have data
+                    active_bookmakers = {"pinnacle"}
 
                     for bm in all_bookmakers:
                         if not isinstance(bm, dict) or "title" not in bm:
@@ -1232,123 +1236,151 @@ class OddsArbitrageFinder:
                             if market["key"].lower() != market_type:
                                 continue
 
-                            outcomes = market.get("outcomes", [])
-                            if len(outcomes) != 2:  # Need both sides
-                                continue
-
-                            # Sort outcomes so first is over/positive side
-                            outcomes.sort(key=lambda x: float(x.get("point", 0) or 0) if x.get("point") is not None else 0, reverse=True)
-
-                            valid_outcomes = True
-                            for outcome in outcomes:
-                                # Match point and player (if prop)
-                                if point != "0" and str(outcome.get("point", "0")) != point:
-                                    valid_outcomes = False
-                                    break
-                                if player and player != outcome.get("description", ""):
-                                    valid_outcomes = False
-                                    break
-
-                            if not valid_outcomes:
-                                continue
-
-                            # Process both outcomes together
-                            for i, outcome in enumerate(outcomes):
-                                side = "over" if i == 0 else "under"
-                                point_value = float(outcome.get("point", 0) or 0) if outcome.get("point") is not None else 0
+                            for outcome in market["outcomes"]:
+                                outcome_point = float(outcome.get("point", 0) or 0)
                                 
-                                # For under side, make point negative if it's not already
-                                if side == "under" and point_value > 0:
-                                    point_value = -point_value
-                                elif side == "over" and point_value < 0:
-                                    point_value = abs(point_value)
+                                # For spreads, match exact point or its opposite
+                                if "spreads" in market_type:
+                                    if point != "0":
+                                        point_float = float(point)
+                                        if not (abs(outcome_point - point_float) <= 0.1 or abs(outcome_point + point_float) <= 0.1):
+                                            continue
+                                elif str(outcome.get("point", "0")) != point:
+                                    continue
 
-                                decimal_odds = float(outcome["price"])
+                                if player and player != outcome.get("description", ""):
+                                    continue
+
+                                decimal_odds = outcome["price"]
                                 american_odds = self.decimal_to_american(decimal_odds)
+
+                                # Determine side based on market type
+                                if "spreads" in market_type:
+                                    side = "over" if outcome_point > 0 or (outcome_point == 0 and outcome["name"] == pin_odds_list[0]["team"]) else "under"
+                                else:
+                                    side = "over" if outcome["name"] == pin_odds_list[0]["team"] else "under"
 
                                 market_data[side]["odds"][bm_title] = {
                                     "american": american_odds,
                                     "decimal": decimal_odds,
-                                    "point": point_value,
+                                    "point": outcome_point,
                                     "link": bm.get("link", "")
                                 }
+                                active_bookmakers.add(bm_title)
 
-                            available_bookmakers.add(bm_title)
-
-                    # Ensure all bookmakers have data for both sides
+                    # Ensure both sides have the same bookmakers with valid data
                     for side in ["over", "under"]:
-                        for bm in available_bookmakers:
-                            if bm not in market_data[side]["odds"]:
-                                # Copy data from the other side if available
+                        for bm in active_bookmakers:
+                            if bm not in market_data[side]["odds"] or market_data[side]["odds"][bm] is None:
                                 other_side = "under" if side == "over" else "over"
-                                if bm in market_data[other_side]["odds"]:
-                                    point_value = market_data[other_side]["odds"][bm]["point"]
-                                    if point_value is not None:
-                                        point_value = -point_value
-                                    market_data[side]["odds"][bm] = {
-                                        "american": None,
-                                        "decimal": None,
-                                        "point": point_value,
-                                        "link": market_data[other_side]["odds"][bm]["link"]
-                                    }
+                                if bm in market_data[other_side]["odds"] and market_data[other_side]["odds"][bm] is not None:
+                                    other_data = market_data[other_side]["odds"][bm].copy()
+                                    if "spreads" in market_type and other_data["point"] is not None:
+                                        other_data["point"] = -float(other_data["point"])
+                                    market_data[side]["odds"][bm] = other_data
+                                else:
+                                    # If no data available, remove from both sides
+                                    market_data["over"]["odds"].pop(bm, None)
+                                    market_data["under"]["odds"].pop(bm, None)
+                                    active_bookmakers.remove(bm)
 
-                    # Now process each non-Pinnacle bookmaker for +EV opportunities
-                    for bm_title in available_bookmakers:
+                    # Check if odds are +EV
+                    for bm_title, odds_data in market_data["over"]["odds"].items():
                         if bm_title == "pinnacle":
                             continue
+                            
+                        american_odds = odds_data["american"]
+                        
+                        # Match the outcome to the correct fair odds
+                        fair_odd = fair_odds[0]  # Use first fair odd for over
+                        
+                        # Check if odds are +EV
+                        is_better = (
+                            (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
+                            or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
+                            or (american_odds > 0 and fair_odd < 0)
+                        )
 
-                        for side in ["over", "under"]:
-                            bm_odds = market_data[side]["odds"].get(bm_title)
-                            if not bm_odds or bm_odds["american"] is None:
-                                continue
+                        if is_better:
+                            # Calculate EV
+                            if american_odds > 0:
+                                decimal_odds = (american_odds / 100) + 1
+                            else:
+                                decimal_odds = (100 / abs(american_odds)) + 1
 
-                            american_odds = bm_odds["american"]
-                            idx = 0 if side == "over" else 1
-                            fair_odd = fair_odds[idx]
+                            if fair_odd > 0:
+                                fair_prob = 100 / (fair_odd + 100)
+                            else:
+                                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
 
-                            # Check if odds are +EV
-                            is_better = (
-                                (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
-                                or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
-                                or (american_odds > 0 and fair_odd < 0)
-                            )
+                            ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
-                            if is_better:
-                                # Calculate EV
-                                if american_odds > 0:
-                                    decimal_odds = (american_odds / 100) + 1
-                                else:
-                                    decimal_odds = (100 / abs(american_odds)) + 1
+                            if ev_percentage >= self.ev_threshold:
+                                opportunity = {
+                                    "sport": game["sport_title"],
+                                    "market_type": market_type,
+                                    "market_point": point if point != "0" else None,
+                                    "game": f"{game['home_team']} vs {game['away_team']}",
+                                    "commence_time": game["commence_time"],
+                                    "team": pin_odds_list[0]["team"],  # Use team from pinnacle odds
+                                    "bookmaker": bm_title,
+                                    "odds": american_odds,
+                                    "fair_odds": fair_odd,
+                                    "ev_percentage": round(ev_percentage, 2),
+                                    "link": odds_data["link"],
+                                    "market_data": market_data,
+                                    "player": player,
+                                }
+                                plus_ev_opportunities.append(opportunity)
 
-                                if fair_odd > 0:
-                                    fair_prob = 100 / (fair_odd + 100)
-                                else:
-                                    fair_prob = abs(fair_odd) / (
-                                        abs(fair_odd) + 100
-                                    )
+                    # Check under side
+                    for bm_title, odds_data in market_data["under"]["odds"].items():
+                        if bm_title == "pinnacle":
+                            continue
+                            
+                        american_odds = odds_data["american"]
+                        
+                        # Match the outcome to the correct fair odds
+                        fair_odd = fair_odds[1]  # Use second fair odd for under
+                        
+                        # Check if odds are +EV
+                        is_better = (
+                            (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd)
+                            or (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd)
+                            or (american_odds > 0 and fair_odd < 0)
+                        )
 
-                                ev_percentage = (decimal_odds * fair_prob - 1) * 100
+                        if is_better:
+                            # Calculate EV
+                            if american_odds > 0:
+                                decimal_odds = (american_odds / 100) + 1
+                            else:
+                                decimal_odds = (100 / abs(american_odds)) + 1
 
-                                if ev_percentage >= self.ev_threshold:
-                                    opportunity = {
-                                        "sport": game["sport_title"],
-                                        "market_type": market_type,
-                                        "market_point": (
-                                            point if point != "0" else None
-                                        ),
-                                        "game": f"{game['home_team']} vs {game['away_team']}",
-                                        "commence_time": game["commence_time"],
-                                        "team": outcome["name"],
-                                        "bookmaker": bm["title"],
-                                        "odds": american_odds,
-                                        "fair_odds": fair_odd,
-                                        "ev_percentage": round(ev_percentage, 2),
-                                        "link": bm.get("link", ""),
-                                        "market_data": market_data,
-                                        "player": player,  # Add player name field
-                                    }
+                            if fair_odd > 0:
+                                fair_prob = 100 / (fair_odd + 100)
+                            else:
+                                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
 
-                                    plus_ev_opportunities.append(opportunity)
+                            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+
+                            if ev_percentage >= self.ev_threshold:
+                                opportunity = {
+                                    "sport": game["sport_title"],
+                                    "market_type": market_type,
+                                    "market_point": point if point != "0" else None,
+                                    "game": f"{game['home_team']} vs {game['away_team']}",
+                                    "commence_time": game["commence_time"],
+                                    "team": pin_odds_list[1]["team"],  # Use team from pinnacle odds
+                                    "bookmaker": bm_title,
+                                    "odds": american_odds,
+                                    "fair_odds": fair_odd,
+                                    "ev_percentage": round(ev_percentage, 2),
+                                    "link": odds_data["link"],
+                                    "market_data": market_data,
+                                    "player": player,
+                                }
+                                plus_ev_opportunities.append(opportunity)
 
             return plus_ev_opportunities
 
