@@ -248,7 +248,46 @@ async def update_db():
         }
 
 
+# 1. Fetch all data from raw df, then delete the old records in ev graph 2 that are past their commence time.
+# 2. Fetch existing records from ev graph 2.
+# 3. Split raw df into two parts: existing bets and new bets.
+# 4. Process existing bets:
+#   - Add new entries to past_data for existing bets.
+#   - Create update with ONLY the fields we're changing.
+#   - upsert to graph
+# 5. Process new bets:
+#   - Create full record with initial past_data.
+#   - Remove None values.
+#   - Insert to graph
+# 5:
+
+
 @router.post("/update_graph")
+# async def updage_graph():
+#     try:
+#         data = await get_all_data()
+#         raw_df = data[0]
+#         supabase.table("ev_graph_v2").delete().lt(
+#             "commence_time", datetime.now(timezone.utc)).execute()
+#         existing_bets_response = supabase.table(
+#             "ev_graph_v2").select("*").limit(100000).execute()
+#         existing_bets = {item['bet_key']: item for item in existing_bets_response.data}
+#         new_bets = raw_df[~raw_df['bet_key'].isin(existing_bets)]
+#         print(len(raw_df))
+#         print(len(existing_bets))
+#         print(len(new_bets))
+#         print(type(new_bets))
+#         return {
+#             "code": 200,
+#             "old_bets": existing_bets,
+#         }
+#     except Exception as e:
+#         print(f"Error in update_graph: {str(e)}")
+#         return {
+#             "code": 500,
+#             "status": "Error",
+#             "message": str(e)
+#         }
 async def update_db():
     try:
         start_time = time.time()
@@ -265,7 +304,8 @@ async def update_db():
         fetch_start = time.time()
         existing_bets_response = supabase.table(
             "ev_graph_v2").select("*").execute()
-        existing_bets = {item['bet_key']: item for item in existing_bets_response.data}
+        existing_bets = {item['bet_key']
+            : item for item in existing_bets_response.data}
         print(
             f"Fetch existing records: {time.time() - fetch_start:.2f} seconds")
 
@@ -275,6 +315,9 @@ async def update_db():
         all_updates = []
         processed_keys = set()
 
+        print(len(raw_records))
+        print(len(existing_bets))
+
         chunk_size = 1000
         for chunk_start in range(0, len(raw_records), chunk_size):
             chunk_end = min(chunk_start + chunk_size, len(raw_records))
@@ -283,7 +326,6 @@ async def update_db():
             for row in chunk:
                 bet_key = row.get('bet_key')
 
-                # Skip if we've already processed this bet_key in this batch
                 if bet_key in processed_keys:
                     continue
                 processed_keys.add(bet_key)
@@ -310,10 +352,8 @@ async def update_db():
                     if not isinstance(past_data, list):
                         past_data = [past_data] if past_data else []
 
-                    # Add new entry to past_data
                     past_data.append(new_entry)
 
-                    # Create update with ONLY the fields we're changing
                     update = {
                         'bet_key': bet_key,
                         'past_data': past_data,
@@ -328,10 +368,6 @@ async def update_db():
                         'odds': row.get('odds'),
                         'timestamp': row.get('timestamp')
                     }
-
-                    # Update market_data if present
-                    if row.get('market_data'):
-                        update['market_data'] = row.get('market_data')
 
                     all_updates.append(update)
 
@@ -359,22 +395,23 @@ async def update_db():
 
                     # Remove None values
                     all_updates.append(new_record)
+        # batch_size = 1000
+        # for i in range(0, len(all_updates), batch_size):
+        #     batch = all_updates[i:i + batch_size]
+        #     supabase.table("ev_graph_v2").upsert(batch).execute()
+        # return {
+        #     "code": 200,
+        #     "status": "Success",
+        #     "message": "Database updated successfully"
+        # }
+
+        # Check all updates with both of them and do it twice to see what happens. Then check all updates without it and check
+
+        # return all_updates
 
         print(f"Process records: {time.time() - process_start:.2f} seconds")
         print(f"Total records to upsert: {len(all_updates)}")
-        # Write all updates to JSON file for debugging/backup
-        # json_start = time.time()
-        # filename = f'updates.json'
 
-        # try:
-        #     with open(filename, 'w') as f:
-        #         json.dump(all_updates, f, indent=2)
-        #     print(f"Updates written to {filename}")
-        #     print(f"JSON write time: {time.time() - json_start:.2f} seconds")
-        # except Exception as e:
-        #     print(f"Error writing updates to JSON: {str(e)}")
-
-        # Optimized upsert in batches
         batch_size = 2000
         upsert_start = time.time()
         for i in range(0, len(all_updates), batch_size):
