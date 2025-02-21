@@ -987,10 +987,18 @@ class OddsArbitrageFinder:
                                 processed_pairs.add(pair_key)
 
                                 # Collect all bookmaker odds for this market point
-                                market_data = {
-                                    "over": {"odds": {}},
-                                    "under": {"odds": {}},
-                                }
+                                market_data = {}
+                                if "h2h" in market_type:
+                                    # For h2h, use team names as keys
+                                    market_data = {
+                                        odds1["team"]: {"odds": {}},
+                                        odds2["team"]: {"odds": {}},
+                                    }
+                                else:
+                                    market_data = {
+                                        "over": {"odds": {}},
+                                        "under": {"odds": {}},
+                                    }
                                 point = odds1.get("point")
 
                                 for bm in all_bookmakers:
@@ -1012,8 +1020,11 @@ class OddsArbitrageFinder:
                                                 decimal_odds
                                             )
 
-                                            # Determine if it's over/under or team1/team2
-                                            if "totals" in market_type:
+                                            # Determine the side based on market type
+                                            if "h2h" in market_type:
+                                                # For h2h, use the team name as the key
+                                                side = outcome["name"]
+                                            elif "totals" in market_type:
                                                 side = (
                                                     "over"
                                                     if "OVER" in outcome["name"].upper()
@@ -1036,11 +1047,12 @@ class OddsArbitrageFinder:
                                                     else "under"
                                                 )
 
-                                            market_data[side]["odds"][bm_title] = {
-                                                "american": american_odds,
-                                                "decimal": decimal_odds,
-                                                "link": bm.get("link"),
-                                            }
+                                            if side in market_data:
+                                                market_data[side]["odds"][bm_title] = {
+                                                    "american": american_odds,
+                                                    "decimal": decimal_odds,
+                                                    "link": bm.get("link"),
+                                                }
 
                                 prob1 = self.calculate_implied_probability(
                                     odds1["price"]
