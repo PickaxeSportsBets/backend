@@ -263,62 +263,51 @@ async def update_db():
 
 
 @router.post("/update_graph")
-# async def updage_graph():
-#     try:
-#         data = await get_all_data()
-#         raw_df = data[0]
-#         supabase.table("ev_graph_v2").delete().lt(
-#             "commence_time", datetime.now(timezone.utc)).execute()
-#         existing_bets_response = supabase.table(
-#             "ev_graph_v2").select("*").limit(100000).execute()
-#         existing_bets = {item['bet_key']: item for item in existing_bets_response.data}
-#         new_bets = raw_df[~raw_df['bet_key'].isin(existing_bets)]
-#         print(len(raw_df))
-#         print(len(existing_bets))
-#         print(len(new_bets))
-#         print(type(new_bets))
-#         return {
-#             "code": 200,
-#             "old_bets": existing_bets,
-#         }
-#     except Exception as e:
-#         print(f"Error in update_graph: {str(e)}")
-#         return {
-#             "code": 500,
-#             "status": "Error",
-#             "message": str(e)
-#         }
 async def update_db():
     try:
         start_time = time.time()
         data = await get_all_data()
         raw_df = data[0]
 
-        # Only delete records that are past their commence time
+        # Clear old records
         clear_start = time.time()
-        supabase.table("ev_graph_v2").delete().lt(
-            "commence_time", datetime.now(timezone.utc)).execute()
-        print(f"Clear old records: {time.time() - clear_start:.2f} seconds")
+        try:
+            supabase.table("ev_graph_v2").delete().lt(
+                "commence_time", datetime.now(timezone.utc)).execute()
+            print(
+                f"Clear old records: {time.time() - clear_start:.2f} seconds")
+        except Exception as e:
+            print(f"Warning: Error clearing old records: {str(e)}")
 
-        # Fetch existing records - get FULL records to preserve all data
+        # Fetch existing records with retry
         fetch_start = time.time()
-        existing_bets_response = supabase.table(
-            "ev_graph_v2").select("*").execute()
-        existing_bets = {item['bet_key']
-            : item for item in existing_bets_response.data}
-        print(
-            f"Fetch existing records: {time.time() - fetch_start:.2f} seconds")
+        max_retries = 3
+        retry_delay = 2
 
-        # Process raw records
+        for attempt in range(max_retries):
+            try:
+                existing_bets_response = supabase.table(
+                    "ev_graph_v2").select("bet_key, past_data").execute()
+                existing_bets_dict = {item['bet_key']: item.get(
+                    'past_data', []) for item in existing_bets_response.data}
+                print(
+                    f"Fetch existing records: {time.time() - fetch_start:.2f} seconds")
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                print(
+                    f"Retry {attempt + 1}/{max_retries} fetching records: {str(e)}")
+                await asyncio.sleep(retry_delay)
+
+        # Process records in smaller chunks
         process_start = time.time()
         raw_records = json.loads(raw_df.to_json(orient="records"))
-        all_updates = []
+        all_records = []
         processed_keys = set()
 
-        print(len(raw_records))
-        print(len(existing_bets))
-
-        chunk_size = 1000
+        # Reduce chunk size
+        chunk_size = 500  # Smaller chunk size
         for chunk_start in range(0, len(raw_records), chunk_size):
             chunk_end = min(chunk_start + chunk_size, len(raw_records))
             chunk = raw_records[chunk_start:chunk_end]
@@ -344,13 +333,12 @@ async def update_db():
                     new_entry['market_point'] = row.get('market_point')
 
                 # CASE 1: Existing record - append to past_data
-                if bet_key in existing_bets:
-                    existing_record = existing_bets[bet_key]
+                if bet_key in existing_bets_dict:
+                    past_data = existing_bets_dict[bet_key]
 
                     # Get current past_data and ensure it's a list
-                    past_data = existing_record.get('past_data', [])
-                    if not isinstance(past_data, list):
-                        past_data = [past_data] if past_data else []
+                    past_data = past_data if isinstance(
+                        past_data, list) else [past_data]
 
                     past_data.append(new_entry)
 
@@ -366,10 +354,13 @@ async def update_db():
                         'market_type': row.get('market_type'),
                         'market_point': row.get('market_point'),
                         'odds': row.get('odds'),
-                        'timestamp': row.get('timestamp')
+                        'timestamp': row.get('timestamp'),
+                        'commence_time': row.get('commence_time'),
+                        'bookmaker': row.get('bookmaker'),
+                        'link': row.get('link')
                     }
 
-                    all_updates.append(update)
+                    all_records.append(update)
 
                 # CASE 2: New record - create full record with initial past_data
                 else:
@@ -394,52 +385,41 @@ async def update_db():
                     }
 
                     # Remove None values
-                    all_updates.append(new_record)
-        # batch_size = 1000
-        # for i in range(0, len(all_updates), batch_size):
-        #     batch = all_updates[i:i + batch_size]
-        #     supabase.table("ev_graph_v2").upsert(batch).execute()
-        # return {
-        #     "code": 200,
-        #     "status": "Success",
-        #     "message": "Database updated successfully"
-        # }
-
-        # Check all updates with both of them and do it twice to see what happens. Then check all updates without it and check
-
-        # return all_updates
+                    all_records.append(new_record)
 
         print(f"Process records: {time.time() - process_start:.2f} seconds")
-        print(f"Total records to upsert: {len(all_updates)}")
+        print(f"Total records to upsert: {len(all_records)}")
 
-        batch_size = 2000
+        # Smaller batch size for upserts
+        batch_size = 100  # Reduced batch size
         upsert_start = time.time()
-        for i in range(0, len(all_updates), batch_size):
-            batch = all_updates[i:i + batch_size]
-            try:
-                supabase.table("ev_graph_v2").upsert(
-                    batch, on_conflict='bet_key').execute()
-            except Exception as e:
-                print(f"Error in batch upsert {i}-{i+len(batch)}: {str(e)}")
 
-                # Fallback to smaller batches
-                fallback_size = 100
-                for j in range(0, len(batch), fallback_size):
-                    sub_batch = batch[j:j + fallback_size]
-                    try:
-                        supabase.table("ev_graph_v2").upsert(
-                            sub_batch, on_conflict='bet_key').execute()
-                    except Exception as inner_e:
-                        print(f"Error in fallback batch: {str(inner_e)}")
+        async def upsert_with_retry(batch, retries=3):
+            for attempt in range(retries):
+                try:
+                    await asyncio.sleep(0.1)  # Small delay between requests
+                    supabase.table("ev_graph_v2").upsert(
+                        batch, on_conflict='bet_key').execute()
+                    return True
+                except Exception as e:
+                    if attempt == retries - 1:
+                        print(f"Failed all retries for batch: {str(e)}")
+                        return False
+                    print(f"Retry {attempt + 1}/{retries}: {str(e)}")
+                    await asyncio.sleep(retry_delay)
+            return False
 
-                        # Last resort: one by one
-                        for record in sub_batch:
-                            try:
-                                supabase.table("ev_graph_v2").upsert(
-                                    [record], on_conflict='bet_key').execute()
-                            except Exception as record_e:
-                                print(
-                                    f"Failed to upsert record {record['bet_key']}: {str(record_e)}")
+        # Process batches with retry logic
+        for i in range(0, len(all_records), batch_size):
+            batch = all_records[i:i + batch_size]
+            success = await upsert_with_retry(batch)
+
+            if not success:
+                # Try even smaller batches
+                mini_batch_size = 25
+                for j in range(0, len(batch), mini_batch_size):
+                    mini_batch = batch[j:j + mini_batch_size]
+                    await upsert_with_retry(mini_batch, retries=2)
 
         print(f"Upsert operations: {time.time() - upsert_start:.2f} seconds")
 
@@ -453,7 +433,7 @@ async def update_db():
             "message": f"Database updated successfully in {execution_time:.2f} seconds",
             "metrics": {
                 "total_records_processed": len(raw_records),
-                "unique_records_upserted": len(all_updates),
+                "unique_records_upserted": len(all_records),
                 "execution_time_seconds": execution_time
             }
         }
