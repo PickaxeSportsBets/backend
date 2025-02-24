@@ -596,6 +596,23 @@ class OddsArbitrageFinder:
             print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
             print(f"Found {len(ev_df)} +EV opportunities")
 
+            if not raw_df.empty:
+                raw_df["timestamp"] = current_time
+                # Removed market_type replacement to preserve original format
+                
+                raw_df["bet_key"] = raw_df.apply(
+                    lambda row: hashlib.sha256(
+                        (
+                            str(row["game"])
+                            + str(row["team"])
+                            + str(row["market_type"])
+                            + str(row["market_point"])
+                            + str(row["bookmaker"])
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                    axis=1,
+                )
+
             print("Analysis complete")
             return arb_df, ev_df
 
@@ -1432,9 +1449,7 @@ async def get_all_data() -> tuple:
 
         if not raw_df.empty:
             raw_df["timestamp"] = current_time
-            raw_df["market_type"] = raw_df["market_type"].replace(
-                {"spreads": "alternate_spreads", "totals": "alternate_totals"}
-            )
+            
             raw_df["bet_key"] = raw_df.apply(
                 lambda row: hashlib.sha256(
                     (
