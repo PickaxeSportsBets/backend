@@ -902,6 +902,27 @@ class OddsArbitrageFinder:
         except (ZeroDivisionError, ValueError):
             return (50.0, 50.0)
 
+    def validate_player_prop(self, market_type: str, player_name: str) -> str:
+        """
+        Validate that a player name exists for player props.
+        Raises an error if player name is missing for a player prop.
+        
+        Args:
+            market_type: The type of market
+            player_name: The player name to validate
+            
+        Returns:
+            The validated player name
+            
+        Raises:
+            ValueError: If player name is missing for a player prop
+        """
+        if "player_" in market_type and (not player_name or player_name == "Unknown"):
+            error_msg = f"Missing player name for player prop: {market_type}"
+            print(error_msg)
+            raise ValueError(error_msg)
+        return player_name
+
     async def find_opportunities(
         self, game: dict, additional_odds: List[dict] = None
     ) -> List[dict]:
@@ -1103,6 +1124,10 @@ class OddsArbitrageFinder:
                                             player_name = odds1["description"]
                                         elif "description" in odds2:
                                             player_name = odds2["description"]
+                                        
+                                        # Validate player name exists for player props
+                                        player_name = self.validate_player_prop(market_type, player_name)
+                                      
 
                                     opportunities.append(
                                         {
@@ -1351,6 +1376,11 @@ class OddsArbitrageFinder:
                                 decimal_odds * fair_prob - 1) * 100
 
                             if ev_percentage >= self.ev_threshold:
+                                # Validate player name exists for player props
+                                if "player_" in market_type:
+                                    player = self.validate_player_prop(market_type, player)
+                            
+                                    
                                 opportunity = {
                                     "sport": game["sport_title"],
                                     "market_type": market_type,
@@ -1405,6 +1435,12 @@ class OddsArbitrageFinder:
                                 decimal_odds * fair_prob - 1) * 100
 
                             if ev_percentage >= self.ev_threshold:
+                                # Validate player name exists for player props
+                              
+                                if "player_" in market_type:
+                                    player = self.validate_player_prop(market_type, player)
+                              
+                                    
                                 opportunity = {
                                     "sport": game["sport_title"],
                                     "market_type": market_type,
