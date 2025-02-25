@@ -274,6 +274,8 @@ async def update_db():
         try:
             supabase.table("ev_graph_v2").delete().lt(
                 "commence_time", datetime.now(timezone.utc)).execute()
+            supabase.table("ev_graph_v2").delete().is_(
+                "commence_time", None).execute()
             print(
                 f"Clear old records: {time.time() - clear_start:.2f} seconds")
         except Exception as e:
