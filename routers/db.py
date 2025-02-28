@@ -104,16 +104,16 @@ async def update_db():
         # Clear old records
         clear_start = time.time()
         try:
-            supabase.table("ev_graph_v2").delete().lt(
-                "commence_time", datetime.now(timezone.utc)).execute()
-            supabase.table("ev_graph_v2").delete().is_(
-                "commence_time", None).execute()
+            supabase.table("ev_graph_v2").delete().or_(
+                "commence_time.lt." +
+                str(datetime.now(timezone.utc)) + ", commence_time.is.null"
+            ).execute()
             print(
                 f"Clear old records: {time.time() - clear_start:.2f} seconds")
         except Exception as e:
             print(f"Warning: Error clearing old records: {str(e)}")
 
-        # Fetch existing records with retry
+        # Fetch existing bet keys only (reducing egress usage)
         fetch_start = time.time()
         max_retries = 3
         retry_delay = 2
@@ -121,33 +121,41 @@ async def update_db():
         for attempt in range(max_retries):
             try:
                 existing_bets_response = supabase.table(
-                    "ev_graph_v2").select("bet_key, past_data").execute()
-                existing_bets_dict = {item['bet_key']: item.get(
-                    'past_data', []) for item in existing_bets_response.data}
+                    "ev_graph_v2").select("bet_key").execute()
+                existing_bets_set = {item["bet_key"]
+                                     for item in existing_bets_response.data}
+
+                # Fetch existing past data for those bet keys
+                past_data_response = supabase.table(
+                    "ev_graph_past_data").select("bet_key, past_data").execute()
+                existing_past_data_dict = {
+                    item["bet_key"]: item["past_data"] for item in past_data_response.data}
+
                 print(
-                    f"Fetch existing records: {time.time() - fetch_start:.2f} seconds")
+                    f"Fetch existing bet keys & past data: {time.time() - fetch_start:.2f} seconds")
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 print(
-                    f"Retry {attempt + 1}/{max_retries} fetching records: {str(e)}")
+                    f"Retry {attempt + 1}/{max_retries} fetching data: {str(e)}")
                 await asyncio.sleep(retry_delay)
 
         # Process records in smaller chunks
         process_start = time.time()
         raw_records = json.loads(raw_df.to_json(orient="records"))
-        all_records = []
+        ev_graph_records = []
+        past_data_updates = []
+        past_data_inserts = []
         processed_keys = set()
 
-        # Reduce chunk size
         chunk_size = 500  # Smaller chunk size
         for chunk_start in range(0, len(raw_records), chunk_size):
             chunk_end = min(chunk_start + chunk_size, len(raw_records))
             chunk = raw_records[chunk_start:chunk_end]
 
             for row in chunk:
-                bet_key = row.get('bet_key')
+                bet_key = row.get("bet_key")
 
                 if bet_key in processed_keys:
                     continue
@@ -155,110 +163,92 @@ async def update_db():
 
                 # Create new history entry with current odds data
                 new_entry = {
-                    'timestamp': row.get('timestamp'),
-                    'odds': row.get('odds'),
-                    'bookmaker': row.get('bookmaker')
+                    "timestamp": row.get("timestamp"),
+                    "odds": row.get("odds"),
+                    "bookmaker": row.get("bookmaker"),
+                    "team": row.get("team") if row.get("team") else None,
+                    "market_point": row.get("market_point") if row.get("market_point") else None,
                 }
 
-                # Add optional fields to history entry
-                if row.get('team'):
-                    new_entry['team'] = row.get('team')
-                if row.get('market_point'):
-                    new_entry['market_point'] = row.get('market_point')
+                # CASE 1: Existing bet - update past_data
+                if bet_key in existing_bets_set:
+                    past_data = existing_past_data_dict.get(bet_key, [])
 
-                # CASE 1: Existing record - append to past_data
-                if bet_key in existing_bets_dict:
-                    past_data = existing_bets_dict[bet_key]
+                    # Ensure past_data is a list before appending
+                    if not isinstance(past_data, list):
+                        # Convert dict to list if needed
+                        past_data = [past_data]
 
-                    # Get current past_data and ensure it's a list
-                    past_data = past_data if isinstance(
-                        past_data, list) else [past_data]
+                    past_data.append(new_entry)  # Append the new entry
+                    past_data_updates.append(
+                        {"bet_key": bet_key, "past_data": past_data})  # Update list
 
-                    past_data.append(new_entry)
-
-                    update = {
-                        'bet_key': bet_key,
-                        'past_data': past_data,
-                        'sport_key': row.get('sport_key'),
-                        'game': row.get('game'),
-                        'team': row.get('team'),
-                        'home_team': row.get('home_team'),
-                        'away_team': row.get('away_team'),
-                        'sport': row.get('sport'),
-                        'market_type': row.get('market_type'),
-                        'market_point': row.get('market_point'),
-                        'odds': row.get('odds'),
-                        'timestamp': row.get('timestamp'),
-                        'commence_time': row.get('commence_time'),
-                        'bookmaker': row.get('bookmaker'),
-                        'link': row.get('link')
-                    }
-
-                    all_records.append(update)
-
-                # CASE 2: New record - create full record with initial past_data
+                # CASE 2: New bet - Insert into ev_graph_v2 & initialize past_data
                 else:
-                    new_record = {
-                        'bet_key': bet_key,
-                        # Initialize past_data with first entry
-                        'past_data': [new_entry],
-                        'odds': row.get('odds'),
-                        'timestamp': row.get('timestamp'),
-                        'commence_time': row.get('commence_time'),
-                        'sport_key': row.get('sport_key'),
-                        'game': row.get('game'),
-                        'team': row.get('team'),
-                        'sport_title': row.get('sport_title'),
-                        'home_team': row.get('home_team'),
-                        'away_team': row.get('away_team'),
-                        'sport': row.get('sport'),
-                        'market_type': row.get('market_type'),
-                        'market_point': row.get('market_point'),
-                        'bookmaker': row.get('bookmaker'),
-                        'link': row.get('link')
-                    }
+                    ev_graph_records.append({
+                        "bet_key": bet_key,
+                        "sport_key": row.get("sport_key"),
+                        "game": row.get("game"),
+                        "team": row.get("team"),
+                        "home_team": row.get("home_team"),
+                        "away_team": row.get("away_team"),
+                        "sport": row.get("sport"),
+                        "market_type": row.get("market_type"),
+                        "market_point": row.get("market_point"),
+                        "odds": row.get("odds"),
+                        "timestamp": row.get("timestamp"),
+                        "commence_time": row.get("commence_time"),
+                        "bookmaker": row.get("bookmaker"),
+                        "link": row.get("link"),
+                    })
 
-                    # Remove None values
-                    all_records.append(new_record)
+                    # Initialize past_data for new bet
+                    past_data_inserts.append(
+                        {"bet_key": bet_key, "past_data": [new_entry]})
 
         print(f"Process records: {time.time() - process_start:.2f} seconds")
-        print(f"Total records to upsert: {len(all_records)}")
+        print(
+            f"Total new records: {len(ev_graph_records)}, Past data updates: {len(past_data_updates)}, Past data inserts: {len(past_data_inserts)}")
 
-        # Smaller batch size for upserts
-        batch_size = 100  # Reduced batch size
-        upsert_start = time.time()
-
-        async def upsert_with_retry(batch, retries=3):
+        # Function for batch upsert with retry
+        async def upsert_with_retry(table, batch, retries=3):
             for attempt in range(retries):
                 try:
                     await asyncio.sleep(0.1)  # Small delay between requests
-                    supabase.table("ev_graph_v2").upsert(
-                        batch, on_conflict='bet_key').execute()
+                    supabase.table(table).upsert(
+                        batch, on_conflict="bet_key").execute()
                     return True
                 except Exception as e:
                     if attempt == retries - 1:
-                        print(f"Failed all retries for batch: {str(e)}")
+                        print(
+                            f"Failed all retries for {table} batch: {str(e)}")
                         return False
-                    print(f"Retry {attempt + 1}/{retries}: {str(e)}")
+                    print(
+                        f"Retry {attempt + 1}/{retries} for {table}: {str(e)}")
                     await asyncio.sleep(retry_delay)
             return False
 
-        # Process batches with retry logic
-        for i in range(0, len(all_records), batch_size):
-            batch = all_records[i:i + batch_size]
-            success = await upsert_with_retry(batch)
+        # Upsert ev_graph_v2 records
+        batch_size = 100
+        upsert_start = time.time()
 
-            if not success:
-                # Try even smaller batches
-                mini_batch_size = 25
-                for j in range(0, len(batch), mini_batch_size):
-                    mini_batch = batch[j:j + mini_batch_size]
-                    await upsert_with_retry(mini_batch, retries=2)
+        for i in range(0, len(ev_graph_records), batch_size):
+            batch = ev_graph_records[i:i + batch_size]
+            await upsert_with_retry("ev_graph_v2", batch)
+
+        # Update existing past data in ev_graph_past_data
+        for i in range(0, len(past_data_updates), batch_size):
+            batch = past_data_updates[i:i + batch_size]
+            await upsert_with_retry("ev_graph_past_data", batch)
+
+        # Insert new past data records in ev_graph_past_data
+        for i in range(0, len(past_data_inserts), batch_size):
+            batch = past_data_inserts[i:i + batch_size]
+            await upsert_with_retry("ev_graph_past_data", batch)
 
         print(f"Upsert operations: {time.time() - upsert_start:.2f} seconds")
 
-        end_time = time.time()
-        execution_time = end_time - start_time
+        execution_time = time.time() - start_time
         print(f"Execution time: {execution_time:.2f} seconds")
 
         return {
@@ -267,9 +257,11 @@ async def update_db():
             "message": f"Database updated successfully in {execution_time:.2f} seconds",
             "metrics": {
                 "total_records_processed": len(raw_records),
-                "unique_records_upserted": len(all_records),
-                "execution_time_seconds": execution_time
-            }
+                "unique_records_upserted": len(ev_graph_records),
+                "past_data_updates": len(past_data_updates),
+                "past_data_inserts": len(past_data_inserts),
+                "execution_time_seconds": execution_time,
+            },
         }
     except Exception as e:
         print(f"Error in update_db: {str(e)}")
@@ -277,7 +269,7 @@ async def update_db():
         return {
             "code": 500,
             "status": "Error",
-            "message": str(e)
+            "message": str(e),
         }
 
 
