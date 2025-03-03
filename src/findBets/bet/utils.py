@@ -1,5 +1,35 @@
 def power_devig(odds_list):
-    """Devig odds using the power method to find fair probabilities"""
+    """Devig odds using the power method to find fair probabilities
+    
+    This function removes the vig (bookmaker margin) from a set of odds using the power method.
+    It converts American odds to probabilities, applies a power adjustment to normalize them,
+    and returns fair American odds without the bookmaker's edge.
+    
+    Args:
+        odds_list (list): List of American odds values (e.g. [+150, -180]) representing
+                          all possible outcomes of a market. For two-way markets like spreads
+                          or totals, this should contain exactly 2 values.
+                          
+                          For spreads betting specifically:
+                          - For Team A at -3.5 points, the input would be:
+                            [Team A's odds at -3.5, Team B's odds at +3.5]
+                          - The function is called separately for each team's perspective
+                          
+    Returns:
+        list: List of fair American odds with vig removed, in the same order as the input.
+             
+             The output is always a list of fair odds that directly corresponds to the input odds:
+             - output[0] = fair odds for the first input (odds_list[0])
+             - output[1] = fair odds for the second input (odds_list[1])
+             
+             For spreads betting specifically:
+             When called with [Team A odds at -3.5, Team B odds at +3.5]:
+             - output[0] = fair odds for Team A at -3.5 points
+             - output[1] = fair odds for Team B at +3.5 points
+             
+             These fair odds represent the true probability of each outcome and can be used
+             to identify +EV betting opportunities when compared with odds offered by bookmakers.
+    """
 
     def american_to_prob(odds):
         if odds > 0:
