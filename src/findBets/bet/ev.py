@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
-from utils import power_devig, decimal_to_american
+from .utils import power_devig, decimal_to_american
+from .player_props import validate_player_prop
 
 """
 Imported functions:
@@ -18,7 +19,6 @@ Imported functions:
     decimal_to_american(decimal_odds): Converts decimal odds (e.g., 2.50) to American format (e.g., +150).
         Used to standardize odds format when comparing across different bookmakers.
 """
-from player_props import validate_player_prop
 
 
 def _check_ev_opportunities_spreads(
@@ -34,26 +34,30 @@ def _check_ev_opportunities_spreads(
 ) -> List[dict]:
     plus_ev_opportunities = []
     market_data = team_a_market_data if column == "team_a" else team_b_market_data
-    team_index = 0 if column == "team_a" else 1  # Team A fair_odds[0], Team B fair_odds[1]
-    
+    # Team A fair_odds[0], Team B fair_odds[1]
+    team_index = 0 if column == "team_a" else 1
+
     # Check "over" (team covers)
     for bm_title, odds_data in market_data["over"]["odds"].items():
         if bm_title == "pinnacle":
             continue
         american_odds = odds_data["american"]
         fair_odd = fair_odds[team_index]
-        
+
         is_better = (
             (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or
             (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or
             (american_odds > 0 and fair_odd < 0)
         )
-        
+
         if is_better:
-            decimal_odds = (american_odds / 100) + 1 if american_odds > 0 else (100 / abs(american_odds)) + 1
-            fair_prob = 100 / (fair_odd + 100) if fair_odd > 0 else abs(fair_odd) / (abs(fair_odd) + 100)
+            decimal_odds = (american_odds / 100) + \
+                1 if american_odds > 0 else (100 / abs(american_odds)) + 1
+            fair_prob = 100 / \
+                (fair_odd + 100) if fair_odd > 0 else abs(fair_odd) / \
+                (abs(fair_odd) + 100)
             ev_percentage = (decimal_odds * fair_prob - 1) * 100
-            
+
             if ev_percentage >= ev_threshold:
                 opportunity = {
                     "sport": game["sport_title"],
@@ -71,8 +75,9 @@ def _check_ev_opportunities_spreads(
                     "player": None
                 }
                 plus_ev_opportunities.append(opportunity)
-    
+
     return plus_ev_opportunities
+
 
 def handle_ev_spreads(
     market_type: str,
@@ -86,7 +91,7 @@ def handle_ev_spreads(
         return plus_ev_opportunities
 
     pin_odds = pinnacle_odds[market_type]
-    
+
     # Pair outcomes with opposite points
     pairs = []
     processed = set()
@@ -103,19 +108,20 @@ def handle_ev_spreads(
                 processed.add(i)
                 processed.add(j)
                 break
-    
+
     for pair in pairs:
         team_a_odds = pair[0] if float(pair[0]['point']) < 0 else pair[1]
         team_b_odds = pair[1] if float(pair[1]['point']) > 0 else pair[0]
         point_abs = abs(float(team_a_odds['point']))
-        
+
         # Devig odds
-        fair_odds = power_devig([team_a_odds['american'], team_b_odds['american']])
-        
+        fair_odds = power_devig(
+            [team_a_odds['american'], team_b_odds['american']])
+
         # Initialize market data
         team_a_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
         team_b_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
-        
+
         # Pinnacle odds
         team_a_market_data["over"]["odds"]["pinnacle"] = {
             "american": team_a_odds['american'],
@@ -141,7 +147,7 @@ def handle_ev_spreads(
             "point": team_a_odds['point'],
             "link": "https://www.pinnacle.com/en/betting"
         }
-        
+
         # Other bookmakers
         active_bookmakers = {"pinnacle"}
         for bm in all_bookmakers:
@@ -150,7 +156,7 @@ def handle_ev_spreads(
             bm_title = bm["title"].lower()
             if bm_title == "pinnacle":
                 continue
-            
+
             for market in bm.get("markets", []):
                 if market["key"].lower() != market_type:
                     continue
@@ -178,7 +184,7 @@ def handle_ev_spreads(
                         else:
                             team_b_market_data["under"]["odds"][bm_title] = odds_data
                     active_bookmakers.add(bm_title)
-        
+
         # Check EV opportunities for both teams
         plus_ev_opportunities.extend(
             _check_ev_opportunities_spreads(
@@ -206,7 +212,7 @@ def handle_ev_spreads(
                 column="team_b"
             )
         )
-    
+
     return plus_ev_opportunities
 
 
@@ -239,7 +245,8 @@ def handle_ev_totals(
     # Group Pinnacle odds by point/line
     pin_odds_by_key = {}
     for odds in pin_odds:
-        key = (str(odds.get("point", "0")), "")  # No player description for totals
+        # No player description for totals
+        key = (str(odds.get("point", "0")), "")
         if key not in pin_odds_by_key:
             pin_odds_by_key[key] = []
         pin_odds_by_key[key].append(odds)
@@ -290,7 +297,8 @@ def handle_ev_totals(
                     american_odds = decimal_to_american(decimal_odds)
 
                     # Determine side based on outcome name (OVER/UNDER)
-                    side = "over" if "OVER" in outcome["name"].upper() else "under"
+                    side = "over" if "OVER" in outcome["name"].upper(
+                    ) else "under"
 
                     market_data[side]["odds"][bm_title] = {
                         "american": american_odds,
@@ -425,7 +433,8 @@ def handle_ev_player_props(
                     american_odds = decimal_to_american(decimal_odds)
 
                     # Determine side based on outcome name (OVER/UNDER)
-                    side = "over" if "OVER" in outcome["name"].upper() else "under"
+                    side = "over" if "OVER" in outcome["name"].upper(
+                    ) else "under"
 
                     market_data[side]["odds"][bm_title] = {
                         "american": american_odds,
