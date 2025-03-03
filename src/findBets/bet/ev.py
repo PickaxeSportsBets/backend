@@ -30,39 +30,48 @@ def _check_ev_opportunities_spreads(
     pin_odds_list: list,
     point: str,
     ev_threshold: float,
-    column: str
+    column: str,
+    is_favorite: bool
 ) -> List[dict]:
     plus_ev_opportunities = []
     market_data = team_a_market_data if column == "team_a" else team_b_market_data
-    # Team A fair_odds[0], Team B fair_odds[1]
-    team_index = 0 if column == "team_a" else 1
-
-    # Check "over" (team covers)
-    for bm_title, odds_data in market_data["over"]["odds"].items():
+    
+    # Determine which side to check based on whether the team is favorite
+    side = "under" if is_favorite else "over"
+    team_index = 0 if is_favorite else 1  # 0 for favorite, 1 for underdog
+    fair_odd = fair_odds[team_index]      # Select corresponding fair odds
+    
+    # Debug logging
+    print(f"Checking {column} as {'favorite' if is_favorite else 'underdog'}, side={side}, team_index={team_index}")
+    print(f"Team: {pin_odds_list[team_index]['team']}, Point: {pin_odds_list[team_index]['point']}, Fair Odd: {fair_odd}")
+    
+    for bm_title, odds_data in market_data[side]["odds"].items():
         if bm_title == "pinnacle":
             continue
+        
         american_odds = odds_data["american"]
-        fair_odd = fair_odds[team_index]
+        
+        # Debug logging for each comparison
+        print(f"Checking {bm_title} odds={american_odds} vs fair_odd={fair_odd} for {pin_odds_list[team_index]['team']} ({side})")
 
+        # Updated is_better condition to handle all cases correctly
         is_better = (
             (american_odds > 0 and fair_odd > 0 and american_odds > fair_odd) or
             (american_odds < 0 and fair_odd < 0 and american_odds > fair_odd) or
-            (american_odds > 0 and fair_odd < 0)
+            (american_odds > 0 and fair_odd < 0) or
+            (american_odds < 0 and fair_odd > 0 and abs(american_odds) < fair_odd)
         )
 
         if is_better:
-            decimal_odds = (american_odds / 100) + \
-                1 if american_odds > 0 else (100 / abs(american_odds)) + 1
-            fair_prob = 100 / \
-                (fair_odd + 100) if fair_odd > 0 else abs(fair_odd) / \
-                (abs(fair_odd) + 100)
+            decimal_odds = (american_odds / 100) + 1 if american_odds > 0 else (100 / abs(american_odds)) + 1
+            fair_prob = 100 / (fair_odd + 100) if fair_odd > 0 else abs(fair_odd) / (abs(fair_odd) + 100)
             ev_percentage = (decimal_odds * fair_prob - 1) * 100
 
             if ev_percentage >= ev_threshold:
                 opportunity = {
                     "sport": game["sport_title"],
                     "market_type": market_type,
-                    "market_point": point,
+                    "market_point": pin_odds_list[team_index]['point'],  # Use actual point with sign instead of absolute value
                     "game": f"{game['home_team']} vs {game['away_team']}",
                     "commence_time": game["commence_time"],
                     "team": pin_odds_list[team_index]["team"],
@@ -75,6 +84,8 @@ def _check_ev_opportunities_spreads(
                     "player": None
                 }
                 plus_ev_opportunities.append(opportunity)
+                # Debug logging for found opportunities
+                print(f"Found +EV opportunity: {opportunity['team']} {side} {opportunity['bookmaker']} {opportunity['odds']} (point: {opportunity['market_point']})")
 
     return plus_ev_opportunities
 
@@ -110,49 +121,98 @@ def handle_ev_spreads(
                 break
 
     for pair in pairs:
-        team_a_odds = pair[0] if float(pair[0]['point']) < 0 else pair[1]
-        team_b_odds = pair[1] if float(pair[1]['point']) > 0 else pair[0]
-        point_abs = abs(float(team_a_odds['point']))
+        # Identify favorite (negative points) and underdog (positive points)
+        favorite_odds = pair[0] if float(pair[0]['point']) < 0 else pair[1]
+        underdog_odds = pair[1] if float(pair[1]['point']) > 0 else pair[0]
+        point_abs = abs(float(favorite_odds['point']))
+        
+        # Debug logging for the pair
+        print(f"\nProcessing spread pair: {favorite_odds['team']} {favorite_odds['point']} @ {favorite_odds['american']} vs {underdog_odds['team']} {underdog_odds['point']} @ {underdog_odds['american']}")
 
         # Devig odds
-        fair_odds = power_devig([team_a_odds['american'], team_b_odds['american']])
+        fair_odds = power_devig([favorite_odds['american'], underdog_odds['american']])
+        print(f"Devigged fair odds: {fair_odds[0]} (favorite), {fair_odds[1]} (underdog)")
 
         # Initialize market data
         team_a_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
         team_b_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
 
-        # Pinnacle odds (baseline, always included)
-        team_a_market_data["over"]["odds"]["pinnacle"] = {
-            "american": team_a_odds['american'],
-            "decimal": team_a_odds['price'],
-            "point": team_a_odds['point'],
-            "link": "https://www.pinnacle.com/en/betting"
-        }
-        team_a_market_data["under"]["odds"]["pinnacle"] = {
-            "american": team_b_odds['american'],
-            "decimal": team_b_odds['price'],
-            "point": team_b_odds['point'],
-            "link": "https://www.pinnacle.com/en/betting"
-        }
-        team_b_market_data["over"]["odds"]["pinnacle"] = {
-            "american": team_b_odds['american'],
-            "decimal": team_b_odds['price'],
-            "point": team_b_odds['point'],
-            "link": "https://www.pinnacle.com/en/betting"
-        }
-        team_b_market_data["under"]["odds"]["pinnacle"] = {
-            "american": team_a_odds['american'],
-            "decimal": team_a_odds['price'],
-            "point": team_a_odds['point'],
-            "link": "https://www.pinnacle.com/en/betting"
-        }
+        # Get team names
+        team_a_name = favorite_odds["team"].lower() if favorite_odds["team"] == pair[0]["team"] else underdog_odds["team"].lower()
+        team_b_name = underdog_odds["team"].lower() if underdog_odds["team"] == pair[1]["team"] else favorite_odds["team"].lower()
+
+        # Determine which team is Team A and which is Team B
+        team_a_is_favorite = favorite_odds["team"].lower() == team_a_name
+        team_b_is_favorite = favorite_odds["team"].lower() == team_b_name
+        
+        print(f"Team A ({team_a_name}) is_favorite={team_a_is_favorite}")
+        print(f"Team B ({team_b_name}) is_favorite={team_b_is_favorite}")
+
+        # Pinnacle odds - ensure "over" has positive points and "under" has negative points
+        # For team_a_market_data
+        if team_a_is_favorite:
+            # Team A is favorite (negative points)
+            team_a_market_data["under"]["odds"]["pinnacle"] = {
+                "american": favorite_odds['american'],
+                "decimal": favorite_odds['price'],
+                "point": favorite_odds['point'],  # Negative
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+            team_a_market_data["over"]["odds"]["pinnacle"] = {
+                "american": underdog_odds['american'],
+                "decimal": underdog_odds['price'],
+                "point": underdog_odds['point'],  # Positive
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+        else:
+            # Team A is underdog (positive points)
+            team_a_market_data["over"]["odds"]["pinnacle"] = {
+                "american": underdog_odds['american'],
+                "decimal": underdog_odds['price'],
+                "point": underdog_odds['point'],  # Positive
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+            team_a_market_data["under"]["odds"]["pinnacle"] = {
+                "american": favorite_odds['american'],
+                "decimal": favorite_odds['price'],
+                "point": favorite_odds['point'],  # Negative
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+
+        # For team_b_market_data
+        if team_b_is_favorite:
+            # Team B is favorite (negative points)
+            team_b_market_data["under"]["odds"]["pinnacle"] = {
+                "american": favorite_odds['american'],
+                "decimal": favorite_odds['price'],
+                "point": favorite_odds['point'],  # Negative
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+            team_b_market_data["over"]["odds"]["pinnacle"] = {
+                "american": underdog_odds['american'],
+                "decimal": underdog_odds['price'],
+                "point": underdog_odds['point'],  # Positive
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+        else:
+            # Team B is underdog (positive points)
+            team_b_market_data["over"]["odds"]["pinnacle"] = {
+                "american": underdog_odds['american'],
+                "decimal": underdog_odds['price'],
+                "point": underdog_odds['point'],  # Positive
+                "link": "https://www.pinnacle.com/en/betting"
+            }
+            team_b_market_data["under"]["odds"]["pinnacle"] = {
+                "american": favorite_odds['american'],
+                "decimal": favorite_odds['price'],
+                "point": favorite_odds['point'],  # Negative
+                "link": "https://www.pinnacle.com/en/betting"
+            }
 
         # Other bookmakers
         active_bookmakers = {"pinnacle"}
-        team_a_name = team_a_odds["team"].lower()
-        team_b_name = team_b_odds["team"].lower()
-        point_a = float(team_a_odds['point'])  # e.g., +2.5 if underdog
-        point_b = float(team_b_odds['point'])  # e.g., -2.5 if favored
+        point_favorite = float(favorite_odds['point'])  # e.g., -3.5
+        point_underdog = float(underdog_odds['point'])  # e.g., +3.5
 
         for bm in all_bookmakers:
             if not isinstance(bm, dict) or "title" not in bm:
@@ -167,8 +227,8 @@ def handle_ev_spreads(
 
             # Find outcomes for both teams with exact points
             outcomes = spreads_market["outcomes"]
-            team_a_outcome = None
-            team_b_outcome = None
+            favorite_outcome = None
+            underdog_outcome = None
 
             for outcome in outcomes:
                 outcome_point = float(outcome.get("point", 0))
@@ -180,18 +240,52 @@ def handle_ev_spreads(
                     "link": bm.get("link", "")
                 }
 
-                if (outcome_team in team_a_name or team_a_name in outcome_team) and outcome_point == point_a:
-                    team_a_outcome = odds_data
-                elif (outcome_team in team_b_name or team_b_name in outcome_team) and outcome_point == point_b:
-                    team_b_outcome = odds_data
+                # Match by team and point
+                if ((outcome_team in favorite_odds["team"].lower() or 
+                     favorite_odds["team"].lower() in outcome_team) and 
+                    outcome_point == point_favorite):
+                    favorite_outcome = odds_data
+                    print(f"Matched favorite {favorite_odds['team']} at {outcome_point} for {bm_title}: {odds_data['american']}")
+                elif ((outcome_team in underdog_odds["team"].lower() or 
+                       underdog_odds["team"].lower() in outcome_team) and 
+                      outcome_point == point_underdog):
+                    underdog_outcome = odds_data
+                    print(f"Matched underdog {underdog_odds['team']} at {outcome_point} for {bm_title}: {odds_data['american']}")
 
             # Only include bookmaker if both outcomes are present
-            if team_a_outcome and team_b_outcome:
-                team_a_market_data["over"]["odds"][bm_title] = team_a_outcome
-                team_a_market_data["under"]["odds"][bm_title] = team_b_outcome
-                team_b_market_data["over"]["odds"][bm_title] = team_b_outcome
-                team_b_market_data["under"]["odds"][bm_title] = team_a_outcome
+            if favorite_outcome and underdog_outcome:
+                # For team_a_market_data
+                if team_a_is_favorite:
+                    team_a_market_data["under"]["odds"][bm_title] = favorite_outcome  # Negative points
+                    team_a_market_data["over"]["odds"][bm_title] = underdog_outcome   # Positive points
+                else:
+                    team_a_market_data["over"]["odds"][bm_title] = underdog_outcome   # Positive points
+                    team_a_market_data["under"]["odds"][bm_title] = favorite_outcome  # Negative points
+
+                # For team_b_market_data
+                if team_b_is_favorite:
+                    team_b_market_data["under"]["odds"][bm_title] = favorite_outcome  # Negative points
+                    team_b_market_data["over"]["odds"][bm_title] = underdog_outcome   # Positive points
+                else:
+                    team_b_market_data["over"]["odds"][bm_title] = underdog_outcome   # Positive points
+                    team_b_market_data["under"]["odds"][bm_title] = favorite_outcome  # Negative points
+
                 active_bookmakers.add(bm_title)
+        
+        # Print market data for debugging
+        print(f"Team A ({team_a_name}) market data:")
+        for side in ["under", "over"]:
+            bookmakers_odds = []
+            for bm, odds in team_a_market_data[side]['odds'].items():
+                bookmakers_odds.append(f"{bm}: {odds['american']}")
+            print(f"  {side}: {bookmakers_odds}")
+        
+        print(f"Team B ({team_b_name}) market data:")
+        for side in ["under", "over"]:
+            bookmakers_odds = []
+            for bm, odds in team_b_market_data[side]['odds'].items():
+                bookmakers_odds.append(f"{bm}: {odds['american']}")
+            print(f"  {side}: {bookmakers_odds}")
 
         # Check EV opportunities for both teams
         plus_ev_opportunities.extend(
@@ -201,10 +295,11 @@ def handle_ev_spreads(
                 team_a_market_data=team_a_market_data,
                 team_b_market_data=team_b_market_data,
                 fair_odds=fair_odds,
-                pin_odds_list=[team_a_odds, team_b_odds],
+                pin_odds_list=[favorite_odds, underdog_odds],
                 point=str(point_abs),
                 ev_threshold=ev_threshold,
-                column="team_a"
+                column="team_a",
+                is_favorite=team_a_is_favorite
             )
         )
         plus_ev_opportunities.extend(
@@ -214,10 +309,11 @@ def handle_ev_spreads(
                 team_a_market_data=team_a_market_data,
                 team_b_market_data=team_b_market_data,
                 fair_odds=fair_odds,
-                pin_odds_list=[team_a_odds, team_b_odds],
+                pin_odds_list=[favorite_odds, underdog_odds],
                 point=str(point_abs),
                 ev_threshold=ev_threshold,
-                column="team_b"
+                column="team_b",
+                is_favorite=team_b_is_favorite
             )
         )
 
