@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
-from .utils import power_devig, decimal_to_american
-from .player_props import validate_player_prop
+from utils import power_devig, decimal_to_american
+from player_props import validate_player_prop
 
 """
 Imported functions:
@@ -115,14 +115,13 @@ def handle_ev_spreads(
         point_abs = abs(float(team_a_odds['point']))
 
         # Devig odds
-        fair_odds = power_devig(
-            [team_a_odds['american'], team_b_odds['american']])
+        fair_odds = power_devig([team_a_odds['american'], team_b_odds['american']])
 
         # Initialize market data
         team_a_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
         team_b_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
 
-        # Pinnacle odds
+        # Pinnacle odds (baseline, always included)
         team_a_market_data["over"]["odds"]["pinnacle"] = {
             "american": team_a_odds['american'],
             "decimal": team_a_odds['price'],
@@ -150,6 +149,11 @@ def handle_ev_spreads(
 
         # Other bookmakers
         active_bookmakers = {"pinnacle"}
+        team_a_name = team_a_odds["team"].lower()
+        team_b_name = team_b_odds["team"].lower()
+        point_a = float(team_a_odds['point'])  # e.g., +2.5 if underdog
+        point_b = float(team_b_odds['point'])  # e.g., -2.5 if favored
+
         for bm in all_bookmakers:
             if not isinstance(bm, dict) or "title" not in bm:
                 continue
@@ -157,33 +161,37 @@ def handle_ev_spreads(
             if bm_title == "pinnacle":
                 continue
 
-            for market in bm.get("markets", []):
-                if market["key"].lower() != market_type:
-                    continue
-                for outcome in market["outcomes"]:
-                    outcome_point = float(outcome.get("point", 0))
-                    if abs(outcome_point) != point_abs:
-                        continue
-                    odds_data = {
-                        "american": decimal_to_american(outcome["price"]),
-                        "decimal": outcome["price"],
-                        "point": outcome_point,
-                        "link": bm.get("link", "")
-                    }
-                    outcome_team = outcome["name"].lower()
-                    team_a_name = team_a_odds["team"].lower()
-                    team_b_name = team_b_odds["team"].lower()
-                    if outcome_team in team_a_name or team_a_name in outcome_team:
-                        if outcome_point < 0:
-                            team_a_market_data["over"]["odds"][bm_title] = odds_data
-                        else:
-                            team_a_market_data["under"]["odds"][bm_title] = odds_data
-                    elif outcome_team in team_b_name or team_b_name in outcome_team:
-                        if outcome_point > 0:
-                            team_b_market_data["over"]["odds"][bm_title] = odds_data
-                        else:
-                            team_b_market_data["under"]["odds"][bm_title] = odds_data
-                    active_bookmakers.add(bm_title)
+            spreads_market = next((m for m in bm.get("markets", []) if m["key"].lower() == market_type), None)
+            if not spreads_market:
+                continue
+
+            # Find outcomes for both teams with exact points
+            outcomes = spreads_market["outcomes"]
+            team_a_outcome = None
+            team_b_outcome = None
+
+            for outcome in outcomes:
+                outcome_point = float(outcome.get("point", 0))
+                outcome_team = outcome["name"].lower()
+                odds_data = {
+                    "american": decimal_to_american(outcome["price"]),
+                    "decimal": outcome["price"],
+                    "point": outcome_point,
+                    "link": bm.get("link", "")
+                }
+
+                if (outcome_team in team_a_name or team_a_name in outcome_team) and outcome_point == point_a:
+                    team_a_outcome = odds_data
+                elif (outcome_team in team_b_name or team_b_name in outcome_team) and outcome_point == point_b:
+                    team_b_outcome = odds_data
+
+            # Only include bookmaker if both outcomes are present
+            if team_a_outcome and team_b_outcome:
+                team_a_market_data["over"]["odds"][bm_title] = team_a_outcome
+                team_a_market_data["under"]["odds"][bm_title] = team_b_outcome
+                team_b_market_data["over"]["odds"][bm_title] = team_b_outcome
+                team_b_market_data["under"]["odds"][bm_title] = team_a_outcome
+                active_bookmakers.add(bm_title)
 
         # Check EV opportunities for both teams
         plus_ev_opportunities.extend(
