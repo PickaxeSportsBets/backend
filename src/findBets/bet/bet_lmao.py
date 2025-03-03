@@ -9,15 +9,15 @@ from typing import List
 from datetime import datetime
 import uuid
 
-from ev import handle_ev_player_props, handle_ev_spreads, handle_ev_totals, handle_ev_h2h
-from player_props import validate_player_prop
-from utils import (
+from .ev import handle_ev_player_props, handle_ev_spreads, handle_ev_totals, handle_ev_h2h
+from .player_props import validate_player_prop
+from .utils import (
     calculate_implied_probability,
     calculate_kelly_percentage,
     decimal_to_american,
     power_devig,
 )
-from ratelimiter import RateLimiter
+from .ratelimiter import RateLimiter
 
 
 class OddsArbitrageFinder:
