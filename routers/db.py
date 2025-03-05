@@ -11,6 +11,9 @@ import asyncio
 import logging
 import time
 import traceback
+import orjson
+import gzip
+import base64
 load_dotenv()
 
 url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
@@ -44,7 +47,6 @@ async def read_root():
 async def update_db():
     try:
         data = await get_all_data()
-        raw_df = data[0]
         arb_df = data[1]
         ev_df = data[2]
         arb_json = json.loads(arb_df.to_json(orient="records"))
@@ -128,8 +130,18 @@ async def update_db():
                 # Fetch existing past data for those bet keys
                 past_data_response = supabase.table(
                     "ev_graph_past_data").select("bet_key, past_data").execute()
-                existing_past_data_dict = {
-                    item["bet_key"]: item["past_data"] for item in past_data_response.data}
+
+                # Decompress past data if it is stored as Gzip
+                existing_past_data_dict = {}
+                for item in past_data_response.data:
+                    try:
+                        compressed_data = base64.b64decode(item["past_data"])
+                        past_data = orjson.loads(
+                            gzip.decompress(compressed_data))
+                    except:
+                        past_data = item["past_data"]  # Fallback to raw JSON
+
+                    existing_past_data_dict[item["bet_key"]] = past_data
 
                 print(
                     f"Fetch existing bet keys & past data: {time.time() - fetch_start:.2f} seconds")
@@ -176,12 +188,18 @@ async def update_db():
 
                     # Ensure past_data is a list before appending
                     if not isinstance(past_data, list):
-                        # Convert dict to list if needed
                         past_data = [past_data]
 
-                    past_data.append(new_entry)  # Append the new entry
+                    past_data.append(new_entry)  # Append new entry
+
+                    # Compress JSON using gzip & base64 encode
+                    compressed_past_data = base64.b64encode(
+                        gzip.compress(orjson.dumps(past_data))
+                    ).decode()
+
                     past_data_updates.append(
-                        {"bet_key": bet_key, "past_data": past_data})  # Update list
+                        {"bet_key": bet_key, "past_data": compressed_past_data}
+                    )  # Update list
 
                 # CASE 2: New bet - Insert into ev_graph_v2 & initialize past_data
                 else:
@@ -202,9 +220,14 @@ async def update_db():
                         "link": row.get("link"),
                     })
 
-                    # Initialize past_data for new bet
+                    # Initialize past_data for new bet (compressed)
+                    compressed_past_data = base64.b64encode(
+                        gzip.compress(orjson.dumps([new_entry]))
+                    ).decode()
+
                     past_data_inserts.append(
-                        {"bet_key": bet_key, "past_data": [new_entry]})
+                        {"bet_key": bet_key, "past_data": compressed_past_data}
+                    )
 
         print(f"Process records: {time.time() - process_start:.2f} seconds")
         print(
