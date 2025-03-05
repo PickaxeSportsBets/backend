@@ -168,8 +168,8 @@ cython_debug/
 #.idea/
 
 # PyPI configuration file
-<<<<<<< HEAD
 .pypirc
-=======
-.pypirc
->>>>>>> cecaea8c68042761e3325cfff82109cb80c691a0
+
+src/findBets/bet/data/arbitrage.csv
+src/findBets/bet/data/ev_opportunities.csv
+src/findBets/bet/data/raw_odds_data.csv

@@ -9,7 +9,12 @@ from typing import List
 from datetime import datetime
 import uuid
 
-from .ev import handle_ev_player_props, handle_ev_spreads, handle_ev_totals, handle_ev_h2h
+from .ev import (
+    handle_ev_player_props,
+    handle_ev_spreads,
+    handle_ev_totals,
+    handle_ev_h2h,
+)
 from .player_props import validate_player_prop
 from .utils import (
     calculate_implied_probability,
@@ -70,6 +75,12 @@ class OddsArbitrageFinder:
                 "player_goals",
                 "player_assists",
             ],
+            "MLB": [
+                "batter_home_runs",
+                "batter_hits",
+                "batter_total_bases",
+                "batter_runs_scored",
+            ],
         }
 
         # Sports to track
@@ -78,6 +89,7 @@ class OddsArbitrageFinder:
             "basketball_ncaab",
             "basketball_nba",
             "icehockey_nhl",
+            "baseball_mlb",
             # "americanfootball_nfl",
         ]
 
@@ -171,8 +183,7 @@ class OddsArbitrageFinder:
 
     async def get_featured_odds(self, sport: str) -> List[dict]:
         """Fetch odds for featured markets"""
-        current_time = datetime.now(
-            timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{self.base_url}/{sport}/odds"
 
         params = {
@@ -214,8 +225,7 @@ class OddsArbitrageFinder:
 
                                 # Modify team name for player props to include player name
                                 if "player_" in market.get("key", "").lower():
-                                    player_name = outcome.get(
-                                        "description", "")
+                                    player_name = outcome.get("description", "")
                                     if player_name:
                                         row["team"] = (
                                             f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
@@ -264,8 +274,7 @@ class OddsArbitrageFinder:
                                 ).hexdigest()
 
                                 # Create DataFrame with explicit dtypes
-                                row_df = pd.DataFrame(
-                                    [row], columns=list(row.keys()))
+                                row_df = pd.DataFrame([row], columns=list(row.keys()))
                                 row_df = row_df.astype(
                                     {
                                         "id": str,
@@ -316,14 +325,12 @@ class OddsArbitrageFinder:
                     for bm in event.get("bookmakers", []):
                         bookmakers_found.add(bm.get("title", "").lower())
 
-                print(
-                    f"Found data from bookmakers: {sorted(bookmakers_found)}")
+                print(f"Found data from bookmakers: {sorted(bookmakers_found)}")
                 missing_books = (
                     set(b.lower() for b in self.bookmakers) - bookmakers_found
                 )
                 if missing_books:
-                    print(
-                        f"Missing data from bookmakers: {sorted(missing_books)}")
+                    print(f"Missing data from bookmakers: {sorted(missing_books)}")
 
         return data if data else []
 
@@ -344,15 +351,13 @@ class OddsArbitrageFinder:
             if not ev_df.empty:
                 print(f"Found {len(ev_df)} +EV opportunities")
                 # Ensure consistent primary key generation between raw and EV data
-                ev_df["primary_key"] = [str(uuid.uuid4())
-                                        for _ in range(len(ev_df))]
+                ev_df["primary_key"] = [str(uuid.uuid4()) for _ in range(len(ev_df))]
                 ev_df["timestamp"] = datetime.now(timezone.utc)
             else:
                 print("No +EV opportunities found")
 
             if not arb_df.empty:
-                arb_df["primary_key"] = [str(uuid.uuid4())
-                                         for _ in range(len(arb_df))]
+                arb_df["primary_key"] = [str(uuid.uuid4()) for _ in range(len(arb_df))]
                 arb_df["timestamp"] = datetime.now(timezone.utc)
 
             # Save raw data
@@ -374,8 +379,7 @@ class OddsArbitrageFinder:
                 ev_df["timestamp"] = current_time
 
             # Convert DataFrames to JSON-serializable format
-            raw_df = self.raw_data.astype(object).where(
-                pd.notnull(self.raw_data), None)
+            raw_df = self.raw_data.astype(object).where(pd.notnull(self.raw_data), None)
             arb_df = arb_df.astype(object).where(pd.notnull(arb_df), None)
             ev_df = ev_df.astype(object).where(pd.notnull(ev_df), None)
 
@@ -437,17 +441,14 @@ class OddsArbitrageFinder:
 
             for sport, featured_odds in zip(self.sports, featured_odds_results):
                 if featured_odds:
-                    print(
-                        f"Received data for {sport}: {len(featured_odds)} games")
-                    all_featured_odds.extend(
-                        [(sport, game) for game in featured_odds])
+                    print(f"Received data for {sport}: {len(featured_odds)} games")
+                    all_featured_odds.extend([(sport, game) for game in featured_odds])
                 else:
                     print(f"No odds data received for {sport}")
 
             # Process all games concurrently
             print(f"Processing {len(all_featured_odds)} total games...")
-            game_tasks = [self.process_game(game)
-                          for _, game in all_featured_odds]
+            game_tasks = [self.process_game(game) for _, game in all_featured_odds]
             all_results = await asyncio.gather(*game_tasks)
 
             # Collect results
@@ -512,8 +513,7 @@ class OddsArbitrageFinder:
     async def process_game(self, game: dict) -> tuple:
         """Process a single game for arbitrage and +EV opportunities"""
         try:
-            print(
-                f"Processing game: {game['home_team']} vs {game['away_team']}")
+            print(f"Processing game: {game['home_team']} vs {game['away_team']}")
 
             # Initialize lists to store all odds
             all_odds = []
@@ -584,8 +584,7 @@ class OddsArbitrageFinder:
 
                                     # Modify team name for player props to include player name
                                     if "player_" in market.get("key", "").lower():
-                                        player_name = outcome.get(
-                                            "description", "")
+                                        player_name = outcome.get("description", "")
                                         if player_name:
                                             row["team"] = (
                                                 f"{player_name} {'Over' if 'OVER' in outcome.get('name', '').upper() else 'Under'}"
@@ -615,8 +614,7 @@ class OddsArbitrageFinder:
             return opportunities, plus_ev, odds_data
 
         except Exception as e:
-            print(
-                f"Error processing game {game.get('id', 'unknown')}: {str(e)}")
+            print(f"Error processing game {game.get('id', 'unknown')}: {str(e)}")
             return [], [], []
 
     async def get_event_odds(self, sport: str, event_id: str) -> List[dict]:
@@ -802,8 +800,7 @@ class OddsArbitrageFinder:
                                                 if point is not None:
                                                     point_float = float(point)
                                                     if not (
-                                                        abs(outcome_point -
-                                                            point_float)
+                                                        abs(outcome_point - point_float)
                                                         <= 0.1
                                                         or abs(
                                                             outcome_point + point_float
@@ -884,10 +881,8 @@ class OddsArbitrageFinder:
                                                     bm, None
                                                 )
 
-                                prob1 = calculate_implied_probability(
-                                    odds1["price"])
-                                prob2 = calculate_implied_probability(
-                                    odds2["price"])
+                                prob1 = calculate_implied_probability(odds1["price"])
+                                prob2 = calculate_implied_probability(odds2["price"])
                                 total_prob = prob1 + prob2
 
                                 if total_prob <= self.low_hold_threshold:
@@ -1018,7 +1013,7 @@ class OddsArbitrageFinder:
                         game=game,
                         pinnacle_odds=pinnacle_odds,
                         all_bookmakers=all_bookmakers,
-                        ev_threshold=self.ev_threshold
+                        ev_threshold=self.ev_threshold,
                     )
                 elif "spreads" in market_type:
                     opportunities = handle_ev_spreads(
@@ -1026,7 +1021,7 @@ class OddsArbitrageFinder:
                         game=game,
                         pinnacle_odds=pinnacle_odds,
                         all_bookmakers=all_bookmakers,
-                        ev_threshold=self.ev_threshold
+                        ev_threshold=self.ev_threshold,
                     )
                 elif "totals" in market_type:
                     opportunities = handle_ev_totals(
@@ -1034,7 +1029,7 @@ class OddsArbitrageFinder:
                         game=game,
                         pinnacle_odds=pinnacle_odds,
                         all_bookmakers=all_bookmakers,
-                        ev_threshold=self.ev_threshold
+                        ev_threshold=self.ev_threshold,
                     )
                 elif "player_" in market_type:
                     opportunities = handle_ev_player_props(
@@ -1042,7 +1037,7 @@ class OddsArbitrageFinder:
                         game=game,
                         pinnacle_odds=pinnacle_odds,
                         all_bookmakers=all_bookmakers,
-                        ev_threshold=self.ev_threshold
+                        ev_threshold=self.ev_threshold,
                     )
                 else:
                     print(f"Unknown market type: {market_type}")
