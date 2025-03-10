@@ -52,6 +52,20 @@ async def update_db():
         arb_json = json.loads(arb_df.to_json(orient="records"))
         ev_json = json.loads(ev_df.to_json(orient="records"))
 
+        # Compress and encode market_data using gzip and base64
+        for record in arb_json:
+            if 'market_data' in record and record['market_data'] is not None:
+                market_data_str = orjson.dumps(record['market_data'])
+                compressed_data = gzip.compress(market_data_str)
+                record['market_data'] = base64.b64encode(
+                    compressed_data).decode()
+        for record in ev_json:
+            if 'market_data' in record and record['market_data'] is not None:
+                market_data_str = orjson.dumps(record['market_data'])
+                compressed_data = gzip.compress(market_data_str)
+                record['market_data'] = base64.b64encode(
+                    compressed_data).decode()
+
         # Delete all existing records from arbitrage table with a WHERE clause
         supabase.table("arbitrage").delete().neq(
             'primary_key', 'no_match').execute()
