@@ -9,23 +9,19 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 from dotenv import load_dotenv
-import supabase
-from supabase import create_client, Client
 import hmac
 import hashlib
+from sqlalchemy.orm import Session
+from src.db.db import get_db
+from src.db.models import Subscriptions
 
 load_dotenv()
 
-
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-supabase: Client = create_client(url, key)
 # Environment variables
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
 CLERK_API_BASE = "https://api.clerk.dev/v1"
-
 
 router = APIRouter(tags=["stripeRouter"])
 
@@ -162,17 +158,25 @@ async def handle_subscription_created(subscription):
             }
         )
 
-        # Check if subscription already exists
-        existing_sub = supabase.table("subscriptions").select(
-            "*").eq("subscription_id", subscription.id).execute()
+        # Get database session
+        db = next(get_db())
+        try:
+            # Check if subscription already exists
+            existing_sub = db.query(Subscriptions).filter(
+                Subscriptions.subscription_id == subscription.id
+            ).first()
 
-        if not existing_sub.data:
-            # Store subscription in Supabase
-            response = supabase.table("subscriptions").insert(
-                subscription_data).execute()
-            print(f"Created new subscription: {response}")
-        else:
-            print(f"Subscription already exists: {existing_sub}")
+            if not existing_sub:
+                # Create new subscription
+                new_subscription = Subscriptions(**subscription_data)
+                db.add(new_subscription)
+                db.commit()
+                print(f"Created new subscription: {new_subscription}")
+            else:
+                print(f"Subscription already exists: {existing_sub}")
+
+        finally:
+            db.close()
 
     except Exception as e:
         print(f"Error in handle_subscription_created: {e}")
@@ -202,54 +206,62 @@ async def handle_subscription_updated(subscription):
             print(f"Subscription ID: {subscription.id}")
             print(f"Update data: {subscription_data}")
 
-            # Check if subscription exists
-            current_subscriptions = supabase.table("subscriptions").select(
-                "*").eq("subscription_id", subscription.id).execute()
-            print(
-                f"Current subscription query result: {current_subscriptions}")
+            # Get database session
+            db = next(get_db())
+            try:
+                # Check if subscription exists
+                current_subscription = db.query(Subscriptions).filter(
+                    Subscriptions.subscription_id == subscription.id
+                ).first()
 
-            if not current_subscriptions.data:
-                if attempt < max_retries - 1:
-                    print(
-                        f"Subscription not found, attempt {attempt + 1}/{max_retries}")
-                    await asyncio.sleep(retry_delay)
-                    continue
+                if not current_subscription:
+                    if attempt < max_retries - 1:
+                        print(
+                            f"Subscription not found, attempt {attempt + 1}/{max_retries}")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        # On final attempt, create the subscription if it doesn't exist
+                        full_subscription_data = {
+                            "subscription_id": subscription.id,
+                            "customer_id": subscription.customer,
+                            "status": subscription.status,
+                            "current_period_end": datetime.fromtimestamp(subscription.current_period_end).isoformat(),
+                            "current_period_start": datetime.fromtimestamp(subscription.current_period_start).isoformat(),
+                            "clerk_user_id": clerk_user_id
+                        }
+                        new_subscription = Subscriptions(
+                            **full_subscription_data)
+                        db.add(new_subscription)
+                        db.commit()
+                        print(
+                            f"Created new subscription on final attempt: {new_subscription}")
                 else:
-                    # On final attempt, create the subscription if it doesn't exist
-                    full_subscription_data = {
-                        "subscription_id": subscription.id,
-                        "customer_id": subscription.customer,
-                        "status": subscription.status,
-                        "current_period_end": datetime.fromtimestamp(subscription.current_period_end).isoformat(),
-                        "current_period_start": datetime.fromtimestamp(subscription.current_period_start).isoformat(),
-                        "clerk_user_id": clerk_user_id
-                    }
-                    response = supabase.table("subscriptions").insert(
-                        full_subscription_data).execute()
+                    # Update existing subscription
+                    for key, value in subscription_data.items():
+                        setattr(current_subscription, key, value)
+                    db.commit()
                     print(
-                        f"Created new subscription on final attempt: {response}")
-            else:
-                # Update existing subscription
-                response = supabase.table("subscriptions").update(
-                    subscription_data).eq("subscription_id", subscription.id).execute()
-                print(f"Updated existing subscription: {response}")
+                        f"Updated existing subscription: {current_subscription}")
 
-            # Update Clerk metadata
-            await update_clerk_user_metadata(
-                clerk_user_id,
-                {
-                    "public_metadata": {
-                        "role": "subscriber",
-                        "subscription_status": subscription.status,
-                        "subscription_id": subscription.id,
-                        "plan": subscription.plan.nickname or subscription.plan.id,
-                        "stripe_customer_id": subscription.customer
-
+                # Update Clerk metadata
+                await update_clerk_user_metadata(
+                    clerk_user_id,
+                    {
+                        "public_metadata": {
+                            "role": "subscriber",
+                            "subscription_status": subscription.status,
+                            "subscription_id": subscription.id,
+                            "plan": subscription.plan.nickname or subscription.plan.id,
+                            "stripe_customer_id": subscription.customer
+                        }
                     }
-                }
-            )
+                )
 
-            break  # Success, exit the retry loop
+                break  # Success, exit the retry loop
+
+            finally:
+                db.close()
 
         except Exception as e:
             if attempt < max_retries - 1:
@@ -279,14 +291,22 @@ async def handle_subscription_deleted(subscription):
             }
         )
 
-        # Update Supabase
-        data, error = supabase.table("subscriptions")\
-            .update({"status": "cancelled"})\
-            .eq("subscription_id", subscription.id)\
-            .execute()
+        # Get database session
+        db = next(get_db())
+        try:
+            # Update subscription status in database
+            subscription_record = db.query(Subscriptions).filter(
+                Subscriptions.subscription_id == subscription.id
+            ).first()
 
-        if error:
-            print(f"Error updating subscription in Supabase: {error}")
+            if subscription_record:
+                subscription_record.status = "cancelled"
+                db.commit()
+                print(
+                    f"Updated subscription status to cancelled: {subscription_record}")
+
+        finally:
+            db.close()
 
     except Exception as e:
         print(f"Error in handle_subscription_deleted: {e}")
@@ -328,7 +348,6 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail='Invalid signature')
 
     try:
-
         if event.type == 'customer.subscription.created':
             print("Processing subscription created")
             await handle_subscription_created(event.data.object)
