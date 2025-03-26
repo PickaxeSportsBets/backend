@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import json
 import logging
-from src.auth import verify_auth_token, verify_subscription_token, TokenPayload
+from src.auth import verify_auth_token, TokenPayload
 load_dotenv()
 
 url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")

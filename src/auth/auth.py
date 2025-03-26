@@ -19,9 +19,6 @@ security = HTTPBearer()
 
 class TokenPayload(BaseModel):
     userId: str
-    isSubscribed: bool
-    subscriptionStatus: str
-    activePlans: list[str]
     exp: int
     iat: int
 
@@ -66,15 +63,3 @@ async def verify_auth_token(
             detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"}
         )
-
-
-async def verify_subscription_token(
-    token: TokenPayload = Depends(verify_auth_token)
-) -> TokenPayload:
-    """Verify token and check subscription status"""
-    if not token.isSubscribed:
-        raise HTTPException(
-            status_code=403,
-            detail="Active subscription required"
-        )
-    return token

@@ -11,7 +11,11 @@ import os
 from typing import Optional
 from datetime import datetime
 import logging
-from src.auth import verify_auth_token, verify_subscription_token, TokenPayload
+from src.auth import verify_auth_token, TokenPayload
+from src.db import get_db
+from src.db.models import *
+
+from sqlalchemy.orm import Session
 load_dotenv()
 
 # Configure logging
@@ -58,27 +62,32 @@ class SubscriptionResponse(BaseModel):
     user_id: str
 
 
-@app.get("/subscription-status", response_model=SubscriptionResponse)
-async def get_subscription_status(token: TokenPayload = Depends(verify_subscription_token)):
-    """
-    Returns the subscription status and plan information for the authenticated user
-    """
-    return SubscriptionResponse(
-        is_subscribed=token.isSubscribed,
-        subscription_status=token.subscriptionStatus,
-        active_plans=token.activePlans,
-        user_id=token.userId
-    )
-
-
 @app.get("/protected")
-async def protected_route(token: TokenPayload = Depends(verify_auth_token)):
-    """Route for authenticated users (subscription not required)"""
+async def protected_route(token: TokenPayload = Depends(verify_auth_token), db: Session = Depends(get_db)):
+    """Route for authenticated users (subscription not required). With the user ID, then check the subscription status"""
+    user_id = token.userId
+    subscriptions = db.query(Subscriptions).filter(
+        Subscriptions.clerk_user_id == user_id).all()
+    if len(subscriptions) == 0:
+        return {
+            "message": "Protected content",
+            "user": token.userId,
+            "isSubscribed": False,
+            "subscriptionStatus": "No subscription found"
+        }
+    for subscription in subscriptions:
+        if subscription.status == "active" or subscription.current_period_end > datetime.datetime.now(datetime.UTC):
+            return {
+                "message": "Protected content",
+                "user": token.userId,
+                "isSubscribed": True,
+                "subscriptionStatus": subscription.status
+            }
     return {
         "message": "Protected content",
         "user": token.userId,
-        "isSubscribed": token.isSubscribed,
-        "subscriptionStatus": token.subscriptionStatus
+        "isSubscribed": False,
+        "subscriptionStatus": "No active subscription found"
     }
 
 # run: uvicorn api:app --reload
