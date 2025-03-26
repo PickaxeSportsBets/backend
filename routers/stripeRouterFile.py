@@ -1,6 +1,8 @@
 from datetime import datetime
 import asyncio
 import httpx
+from fastapi import APIRouter, Depends
+
 import stripe
 from stripe import StripeError
 from fastapi import APIRouter, HTTPException, Request
@@ -13,7 +15,11 @@ import hmac
 import hashlib
 from sqlalchemy.orm import Session
 from src.db.db import get_db
-from src.db.models import Subscriptions
+from src.db.models import Subscriptions, FreeBet
+from sqlalchemy.dialects.postgresql import insert
+from src.auth import verify_auth_token, TokenPayload
+
+from datetime import timezone
 
 load_dotenv()
 
@@ -364,3 +370,105 @@ async def stripe_webhook(request: Request):
         print(f"Full error details: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error processing webhook: {str(e)}")
+
+
+@router.get("/get-subscriptions/{clerk_user_id}")
+async def get_subscriptions(clerk_user_id: str, db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
+    try:
+        # Get all subscriptions from the database
+        subscriptions = db.query(Subscriptions).filter(
+            Subscriptions.clerk_user_id == clerk_user_id).all()
+
+        # Return the subscriptions as a list of dictionaries
+        return [subscription for subscription in subscriptions]
+    except Exception as e:
+        print(f"Error in get_subscriptions: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error in get_subscriptions: {str(e)}")
+
+
+@router.get("/get-subscriptions-active/{clerk_user_id}")
+async def get_subscriptions(clerk_user_id: str, db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
+    try:
+        # Get all subscriptions from the database
+        subscriptions = db.query(Subscriptions).filter(
+            Subscriptions.clerk_user_id == clerk_user_id & Subscriptions.status != "cancelled").all()
+
+        # Return the subscriptions as a list of dictionaries
+        return [subscription for subscription in subscriptions]
+    except Exception as e:
+        print(f"Error in get_subscriptions: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error in get_subscriptions: {str(e)}")
+
+
+@router.get("/get-free-bet/{clerk_user_id}")
+async def get_free_bet(clerk_user_id: str, db: Session = Depends(get_db)):
+    try:
+        free_bet = db.query(FreeBet).filter(
+            FreeBet.clerk_id == clerk_user_id
+        ).first()
+
+        if not free_bet:
+            return {
+                "code": 404,
+                "status": "Not Found",
+                "message": "No free bet record found for this user"
+            }
+
+        return {
+            "code": 200,
+            "status": "Success",
+            "data": {
+                "clerk_id": free_bet.clerk_id,
+                "lastRedemptionDate": free_bet.lastRedemptionDate
+            }
+        }
+    except Exception as e:
+        print(f"Error in get_free_bet: {str(e)}")
+        db.rollback()
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e)
+        }
+
+
+@router.post("/upsert-free-bet/{clerk_user_id}")
+async def upsert_free_bet(clerk_user_id: str, db: Session = Depends(get_db)):
+    try:
+        stmt = insert(FreeBet).values({
+            "clerk_id": clerk_user_id,
+            "lastRedemptionDate": datetime.now(timezone.utc)
+        })
+
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["clerk_id"],
+            set_={
+                "lastRedemptionDate": stmt.excluded.lastRedemptionDate,
+            }
+        )
+
+        db.execute(stmt)
+        db.commit()
+
+        free_bet = db.query(FreeBet).filter(
+            FreeBet.clerk_id == clerk_user_id
+        ).first()
+
+        return {
+            "code": 200,
+            "status": "Success",
+            "data": {
+                "clerk_id": free_bet.clerk_id,
+                "lastRedemptionDate": free_bet.lastRedemptionDate,
+            }
+        }
+    except Exception as e:
+        print(f"Error in upsert_free_bet: {str(e)}")
+        db.rollback()
+        return {
+            "code": 500,
+            "status": "Error",
+            "error": str(e)
+        }

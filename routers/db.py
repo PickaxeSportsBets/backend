@@ -21,6 +21,9 @@ from src.db.db import get_db
 from src.db.models import *
 from sqlalchemy import desc
 from typing import List, Dict, Any
+from sqlalchemy import Float, cast
+from src.auth import verify_auth_token, TokenPayload
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -28,7 +31,7 @@ router = APIRouter(tags=["db"])
 
 
 @router.get("/evBets")
-async def get_ev_bets(db: Session = Depends(get_db)):
+async def get_ev_bets(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
         bets = db.query(PlusEv).order_by(desc(PlusEv.ev_percentage)).all()
         return [bet.__dict__ for bet in bets]
@@ -38,12 +41,37 @@ async def get_ev_bets(db: Session = Depends(get_db)):
 
 
 @router.get("/arbitrageBets")
-async def get_arbitrage_bets(db: Session = Depends(get_db)):
+async def get_arbitrage_bets(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
-        bets = db.query(Arbitrage).all()
+        bets = db.query(Arbitrage).order_by(
+            desc(Arbitrage.profit_percentage)).all()
         return [bet.__dict__ for bet in bets]
     except Exception as e:
         print(f"Error in get_arbitrage_bets: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/arbitrageFreeBet")
+async def get_arbitrage_free_bet(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
+    try:
+        # First get all arbitrage bets
+        bets = db.query(Arbitrage).filter(
+            Arbitrage.opportunity_type == "Arbitrage"
+        ).all()
+
+        filtered_bets = []
+        for bet in bets:
+            try:
+                profit = float(
+                    bet.profit_percentage) if bet.profit_percentage else 0
+                if profit > 0:
+                    filtered_bets.append(bet)
+            except (ValueError, TypeError):
+                continue
+
+        return [bet.__dict__ for bet in filtered_bets]
+    except Exception as e:
+        print(f"Error in get_arbitrage_free_bet: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -128,6 +156,7 @@ async def update_graph(db: Session = Depends(get_db)):
     try:
         start_time = time.time()
         data = await get_all_data()
+
         raw_df = data[0]
 
         # ✅ Step 1: Clear old records
@@ -228,3 +257,35 @@ async def update_graph(db: Session = Depends(get_db)):
         traceback.print_exc()
         db.rollback()
         return {"code": 500, "status": "Error", "message": str(e)}
+
+
+class BetData(BaseModel):
+    game: str
+    market_type: str
+    team: str
+    market_point: str | None = None
+
+
+@router.post("/get_bet_data")
+async def get_bet_data(bet: BetData, db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
+    try:
+        matching_bet = db.query(EvGraphV2).filter(
+            EvGraphV2.game == bet.game,
+            EvGraphV2.market_type == bet.market_type,
+            EvGraphV2.team == bet.team,
+            (
+                (EvGraphV2.market_point.is_(None) & (bet.market_point is None)) |
+                (EvGraphV2.market_point == bet.market_point)
+            )
+        ).all()
+
+        return [bet.__dict__ for bet in matching_bet]
+
+    except Exception as e:
+        print(f"Error in get_bet_data: {str(e)}")
+        db.rollback()
+        return {
+            "code": 500,
+            "status": "Error",
+            "message": str(e)
+        }
