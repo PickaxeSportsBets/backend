@@ -14,9 +14,11 @@ from email.mime.multipart import MIMEMultipart
 from PIL import Image
 import jinja2
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 from src.db.db import get_db
 from src.db.models import Subscriptions, Arbitrage, PlusEv
-from sqlalchemy import desc, cast, Numeric
+from sqlalchemy import desc, cast, Numeric, text
+import backoff
 
 
 load_dotenv()
@@ -29,6 +31,29 @@ email_password: str = os.environ.get("EMAIL_PASSWORD")
 # Initialize Jinja2 environment
 template_loader = jinja2.FileSystemLoader('src/email')
 template_env = jinja2.Environment(loader=template_loader)
+
+# Database retry settings
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
+
+
+@backoff.on_exception(
+    backoff.expo,
+    (OperationalError, Exception),
+    max_tries=MAX_RETRIES,
+    max_time=300,
+    giveup=lambda e: "connection refused" in str(e).lower()
+)
+def get_db_with_retry():
+    """Get database session with retry logic"""
+    try:
+        db = next(get_db())
+        # Test the connection
+        db.execute(text("SELECT 1"))
+        return db
+    except Exception as e:
+        logger.error(f"Database connection error: {str(e)}")
+        raise
 
 
 def get_email_subject(arb_bets: list, ev_bets: list) -> str:
@@ -118,12 +143,14 @@ async def send_daily_email():
                 await asyncio.sleep(wait_seconds)
                 continue
 
-            # Get database session
-            db = next(get_db())
+            # Get database session with retry
+            db = None
             try:
+                db = get_db_with_retry()
+
                 # Get active subscriptions
                 active_subscriptions = db.query(Subscriptions).filter(
-                    Subscriptions.status == "active",
+                    Subscriptions.status == "active"
                 ).all()
                 active_subscriptions = [
                     sub for sub in active_subscriptions if sub.current_period_end >= datetime.now(timezone.utc)]
@@ -204,8 +231,19 @@ async def send_daily_email():
                 logger.info(f"Emails sent to {len(users)} users")
                 await asyncio.sleep(3600)
 
+            except Exception as db_error:
+                logger.error(
+                    f"Database error in send_daily_email: {str(db_error)}")
+                await asyncio.sleep(RETRY_DELAY)
+                continue
+
             finally:
-                db.close()
+                if db:
+                    try:
+                        db.close()
+                    except Exception as close_error:
+                        logger.error(
+                            f"Error closing database connection: {str(close_error)}")
 
         except Exception as e:
             logger.error(f"Error in send_daily_email: {str(e)}")
@@ -235,15 +273,19 @@ async def send_special_email():
                 await asyncio.sleep(wait_seconds)
                 continue
 
-            # Get database session
-            db = next(get_db())
+            # Get database session with retry
+            db = None
             try:
+                db = get_db_with_retry()
+
                 # Get active subscriptions
                 active_subscriptions = db.query(Subscriptions).filter(
-                    Subscriptions.status == "active",
-                    Subscriptions.current_period_end < datetime.now(
-                        timezone.utc)
+                    Subscriptions.status == "active"
                 ).all()
+                active_subscriptions = [
+                    sub for sub in active_subscriptions if sub.current_period_end >= datetime.now(timezone.utc)]
+                logger.info(
+                    f"Active subscriptions: {len(active_subscriptions)}")
 
                 # Get high-value arbitrage bets
                 arb_bets = db.query(Arbitrage).filter(
@@ -314,11 +356,23 @@ async def send_special_email():
                     "Emails sent successfully. Waiting 10 minutes before next check.")
                 await asyncio.sleep(600)
 
+            except Exception as db_error:
+                logger.error(
+                    f"Database error in send_special_email: {str(db_error)}")
+                await asyncio.sleep(RETRY_DELAY)
+                continue
+
             finally:
-                db.close()
+                if db:
+                    try:
+                        db.close()
+                    except Exception as close_error:
+                        logger.error(
+                            f"Error closing database connection: {str(close_error)}")
 
         except Exception as e:
-            logger.error(f"Error in send_daily_email: {str(e)}")
+            logger.error(f"Error in send_special_email: {str(e)}")
+            await asyncio.sleep(60)  # Wait 1 minute before retrying on error
 
 
 def get_special_email_subject(arb_bets: list, ev_bets: list) -> str:

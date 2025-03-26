@@ -18,7 +18,7 @@ from src.db.db import get_db
 from src.db.models import Subscriptions, FreeBet
 from sqlalchemy.dialects.postgresql import insert
 from src.auth import verify_auth_token, TokenPayload
-
+from sqlalchemy import text, and_
 from datetime import timezone
 
 load_dotenv()
@@ -388,11 +388,13 @@ async def get_subscriptions(clerk_user_id: str, db: Session = Depends(get_db), t
 
 
 @router.get("/get-subscriptions-active/{clerk_user_id}")
-async def get_subscriptions(clerk_user_id: str, db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
+async def get_subscriptions(clerk_user_id: str, db: Session = Depends(get_db)):
     try:
         # Get all subscriptions from the database
         subscriptions = db.query(Subscriptions).filter(
-            Subscriptions.clerk_user_id == clerk_user_id & Subscriptions.status != "cancelled").all()
+            and_(Subscriptions.clerk_user_id == clerk_user_id,
+                 Subscriptions.status != "cancelled")
+        ).all()
 
         # Return the subscriptions as a list of dictionaries
         return [subscription for subscription in subscriptions]
