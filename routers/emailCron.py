@@ -33,7 +33,7 @@ template_loader = jinja2.FileSystemLoader('src/email')
 template_env = jinja2.Environment(loader=template_loader)
 
 # Database retry settings
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 RETRY_DELAY = 5  # seconds
 
 
@@ -42,17 +42,23 @@ RETRY_DELAY = 5  # seconds
     (OperationalError, Exception),
     max_tries=MAX_RETRIES,
     max_time=300,
-    giveup=lambda e: "connection refused" in str(e).lower()
+    giveup=lambda e: "authentication failed" in str(
+        e).lower()  # Only give up on auth failures
 )
 def get_db_with_retry():
     """Get database session with retry logic"""
     try:
         db = next(get_db())
-        # Test the connection
+        # Test the connection with a simple query
         db.execute(text("SELECT 1"))
         return db
     except Exception as e:
         logger.error(f"Database connection error: {str(e)}")
+        # Force close any existing connection before retrying
+        try:
+            db.close()
+        except:
+            pass
         raise
 
 
@@ -100,15 +106,27 @@ def is_within_operating_hours() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting email cron background task")
-    task = asyncio.create_task(send_daily_email())
-    yield
-    logger.info("Shutting down email cron background task")
-    task.cancel()
+    logger.info("Starting email cron background tasks")
+    # Start both email tasks
+    daily_task = asyncio.create_task(send_daily_email())
+    special_task = asyncio.create_task(send_special_email())
+
     try:
-        await task
-    except asyncio.CancelledError:
-        pass
+        yield
+    finally:
+        logger.info("Shutting down email cron background tasks")
+        # Cancel both tasks
+        daily_task.cancel()
+        special_task.cancel()
+
+        # Wait for tasks to complete
+        try:
+            await asyncio.gather(daily_task, special_task, return_exceptions=True)
+            logger.info("Email tasks successfully shut down")
+        except asyncio.CancelledError:
+            logger.info("Email tasks cancelled")
+        except Exception as e:
+            logger.error(f"Error during task shutdown: {str(e)}")
 
 router = APIRouter(tags=["emailCron"])
 
@@ -121,7 +139,11 @@ def format_bet_link(link: str) -> str:
 
 
 async def send_daily_email():
+    connection_error_count = 0
+    max_connection_errors = 5
+
     while True:
+        db = None
         try:
             # Check if we're within operating hours
             if not is_within_operating_hours():
@@ -144,9 +166,10 @@ async def send_daily_email():
                 continue
 
             # Get database session with retry
-            db = None
             try:
                 db = get_db_with_retry()
+                # Reset error count on successful connection
+                connection_error_count = 0
 
                 # Get active subscriptions
                 active_subscriptions = db.query(Subscriptions).filter(
@@ -188,6 +211,12 @@ async def send_daily_email():
                         bet.fair_odds) if bet.fair_odds else 0
                     bet.link = format_bet_link(bet.link)
 
+                # Always close the DB connection after fetching data
+                if db:
+                    db.close()
+                    db = None
+
+                # Now send emails with the fetched data
                 logger.info("Sending hourly email")
                 users = set(
                     subscription.clerk_user_id for subscription in active_subscriptions)
@@ -232,26 +261,44 @@ async def send_daily_email():
                 await asyncio.sleep(3600)
 
             except Exception as db_error:
+                connection_error_count += 1
                 logger.error(
-                    f"Database error in send_daily_email: {str(db_error)}")
-                await asyncio.sleep(RETRY_DELAY)
-                continue
+                    f"Database error in send_daily_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
 
-            finally:
-                if db:
-                    try:
-                        db.close()
-                    except Exception as close_error:
-                        logger.error(
-                            f"Error closing database connection: {str(close_error)}")
+                # If we've had too many consecutive errors, restart the task
+                if connection_error_count >= max_connection_errors:
+                    logger.critical(
+                        "Too many consecutive database errors. Restarting task.")
+                    connection_error_count = 0
+                    await asyncio.sleep(60)  # Wait a bit before restarting
+                    break  # Break out of the loop to restart
+
+                # Increasing backoff
+                await asyncio.sleep(RETRY_DELAY * connection_error_count)
+                continue
 
         except Exception as e:
             logger.error(f"Error in send_daily_email: {str(e)}")
             await asyncio.sleep(60)  # Wait 1 minute before retrying on error
 
+        finally:
+            # Always ensure the database connection is closed
+            if db:
+                try:
+                    db.close()
+                    logger.info("Database connection closed")
+                except Exception as close_error:
+                    logger.error(
+                        f"Error closing database connection: {str(close_error)}")
+                db = None
+
 
 async def send_special_email():
+    connection_error_count = 0
+    max_connection_errors = 5
+
     while True:
+        db = None
         try:
             # Check if we're within operating hours
             if not is_within_operating_hours():
@@ -274,9 +321,10 @@ async def send_special_email():
                 continue
 
             # Get database session with retry
-            db = None
             try:
                 db = get_db_with_retry()
+                # Reset error count on successful connection
+                connection_error_count = 0
 
                 # Get active subscriptions
                 active_subscriptions = db.query(Subscriptions).filter(
@@ -298,6 +346,11 @@ async def send_special_email():
                     cast(PlusEv.ev_percentage, Numeric) > 10
                 ).order_by(desc(PlusEv.ev_percentage)).all()
 
+                # Close DB connection after data retrieval
+                if db:
+                    db.close()
+                    db = None
+
                 if len(arb_bets) == 0 and len(ev_bets) == 0:
                     logger.info(
                         "No special bets found. Waiting 10 minutes before next check.")
@@ -313,7 +366,7 @@ async def send_special_email():
                 for bet in ev_bets:
                     bet.link = format_bet_link(bet.link)
 
-                logger.info("Sending hourly email")
+                logger.info("Sending special email")
                 users = set(
                     subscription.clerk_user_id for subscription in active_subscriptions)
                 info = []
@@ -357,22 +410,36 @@ async def send_special_email():
                 await asyncio.sleep(600)
 
             except Exception as db_error:
+                connection_error_count += 1
                 logger.error(
-                    f"Database error in send_special_email: {str(db_error)}")
-                await asyncio.sleep(RETRY_DELAY)
-                continue
+                    f"Database error in send_special_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
 
-            finally:
-                if db:
-                    try:
-                        db.close()
-                    except Exception as close_error:
-                        logger.error(
-                            f"Error closing database connection: {str(close_error)}")
+                # If we've had too many consecutive errors, restart the task
+                if connection_error_count >= max_connection_errors:
+                    logger.critical(
+                        "Too many consecutive database errors. Restarting task.")
+                    connection_error_count = 0
+                    await asyncio.sleep(60)  # Wait a bit before restarting
+                    break  # Break out of the loop to restart
+
+                # Increasing backoff
+                await asyncio.sleep(RETRY_DELAY * connection_error_count)
+                continue
 
         except Exception as e:
             logger.error(f"Error in send_special_email: {str(e)}")
             await asyncio.sleep(60)  # Wait 1 minute before retrying on error
+
+        finally:
+            # Always ensure the database connection is closed
+            if db:
+                try:
+                    db.close()
+                    logger.info("Database connection closed")
+                except Exception as close_error:
+                    logger.error(
+                        f"Error closing database connection: {str(close_error)}")
+                db = None
 
 
 def get_special_email_subject(arb_bets: list, ev_bets: list) -> str:
