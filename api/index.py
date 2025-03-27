@@ -76,7 +76,7 @@ async def protected_route(token: TokenPayload = Depends(verify_auth_token), db: 
             "subscriptionStatus": "No subscription found"
         }
     for subscription in subscriptions:
-        if subscription.status == "active" or subscription.current_period_end > datetime.datetime.now(datetime.UTC):
+        if subscription.status == "active" and subscription.current_period_end > datetime.datetime.now(datetime.UTC):
             return {
                 "message": "Protected content",
                 "user": token.userId,
