@@ -237,6 +237,7 @@ async def update_graph(db: Session = Depends(get_db)):
         return {"code": 500, "status": "Error", "message": str(e)}
 
 
+# cahanges made
 class BetData(BaseModel):
     game: str
     market_type: str
