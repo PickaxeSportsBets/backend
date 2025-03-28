@@ -19,6 +19,7 @@ from src.db.db import get_db
 from src.db.models import Subscriptions, Arbitrage, PlusEv
 from sqlalchemy import desc, cast, Numeric, text
 import backoff
+import signal
 
 
 load_dotenv()
@@ -36,17 +37,39 @@ template_env = jinja2.Environment(loader=template_loader)
 MAX_RETRIES = 5
 RETRY_DELAY = 5  # seconds
 
+# Global flag for shutdown
+is_shutting_down = False
+
+
+def handle_shutdown(signum, frame):
+    """Signal handler for graceful shutdown"""
+    global is_shutting_down
+    logger.info("Received shutdown signal, initiating graceful shutdown...")
+    is_shutting_down = True
+
+
+# Register signal handlers
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
 
 @backoff.on_exception(
     backoff.expo,
     (OperationalError, Exception),
     max_tries=MAX_RETRIES,
     max_time=300,
-    giveup=lambda e: "authentication failed" in str(
-        e).lower()  # Only give up on auth failures
+    giveup=lambda e: "authentication failed" in str(e).lower(
+    ) or is_shutting_down  # Give up on auth failures or during shutdown
 )
 def get_db_with_retry():
     """Get database session with retry logic"""
+    global is_shutting_down
+
+    if is_shutting_down:
+        logger.info(
+            "Shutdown in progress, skipping database connection attempt")
+        raise Exception("Application is shutting down")
+
     try:
         db = next(get_db())
         # Test the connection with a simple query
@@ -106,6 +129,8 @@ def is_within_operating_hours() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global is_shutting_down
+
     logger.info("Starting email cron background tasks")
     # Start both email tasks
     daily_task = asyncio.create_task(send_daily_email())
@@ -115,14 +140,22 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down email cron background tasks")
+        is_shutting_down = True
+
         # Cancel both tasks
         daily_task.cancel()
         special_task.cancel()
 
-        # Wait for tasks to complete
+        # Wait for tasks to complete with timeout
         try:
-            await asyncio.gather(daily_task, special_task, return_exceptions=True)
+            await asyncio.wait_for(
+                asyncio.gather(daily_task, special_task,
+                               return_exceptions=True),
+                timeout=10  # 10 second timeout for cleanup
+            )
             logger.info("Email tasks successfully shut down")
+        except asyncio.TimeoutError:
+            logger.warning("Timeout while waiting for tasks to shut down")
         except asyncio.CancelledError:
             logger.info("Email tasks cancelled")
         except Exception as e:
@@ -142,7 +175,7 @@ async def send_daily_email():
     connection_error_count = 0
     max_connection_errors = 5
 
-    while True:
+    while not is_shutting_down:
         db = None
         try:
             # Check if we're within operating hours
@@ -162,8 +195,16 @@ async def send_daily_email():
                 wait_seconds = (next_run - current_time).total_seconds()
                 logger.info(
                     f"Outside operating hours. Waiting {wait_seconds/3600:.1f} hours until {next_run.strftime('%I:%M %p %Z')}")
-                await asyncio.sleep(wait_seconds)
+
+                # Break wait into smaller intervals to check for shutdown
+                while wait_seconds > 0 and not is_shutting_down:
+                    # Wait max 1 minute at a time
+                    await asyncio.sleep(min(60, wait_seconds))
+                    wait_seconds -= 60
                 continue
+
+            if is_shutting_down:
+                break
 
             # Get database session with retry
             try:
@@ -254,35 +295,39 @@ async def send_daily_email():
                             logger.error(
                                 f"Error sending email to {user_id}: {str(user_error)}")
 
-                # Wait for 1 hour before next check
+                # Wait for 1 hour before next check, but check for shutdown every minute
                 logger.info(
                     "Emails sent successfully. Waiting 1 hour before next check.")
-                logger.info(f"Emails sent to {len(users)} users")
-                await asyncio.sleep(3600)
+                for _ in range(60):  # 60 minutes
+                    if is_shutting_down:
+                        break
+                    await asyncio.sleep(60)  # 1 minute
 
             except Exception as db_error:
+                if is_shutting_down:
+                    break
+
                 connection_error_count += 1
                 logger.error(
                     f"Database error in send_daily_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
 
-                # If we've had too many consecutive errors, restart the task
                 if connection_error_count >= max_connection_errors:
                     logger.critical(
                         "Too many consecutive database errors. Restarting task.")
                     connection_error_count = 0
-                    await asyncio.sleep(60)  # Wait a bit before restarting
-                    break  # Break out of the loop to restart
+                    await asyncio.sleep(60)
+                    break
 
-                # Increasing backoff
                 await asyncio.sleep(RETRY_DELAY * connection_error_count)
                 continue
 
         except Exception as e:
+            if is_shutting_down:
+                break
             logger.error(f"Error in send_daily_email: {str(e)}")
-            await asyncio.sleep(60)  # Wait 1 minute before retrying on error
+            await asyncio.sleep(60)
 
         finally:
-            # Always ensure the database connection is closed
             if db:
                 try:
                     db.close()
@@ -292,12 +337,14 @@ async def send_daily_email():
                         f"Error closing database connection: {str(close_error)}")
                 db = None
 
+    logger.info("Daily email task shutting down")
+
 
 async def send_special_email():
     connection_error_count = 0
     max_connection_errors = 5
 
-    while True:
+    while not is_shutting_down:
         db = None
         try:
             # Check if we're within operating hours
@@ -317,8 +364,16 @@ async def send_special_email():
                 wait_seconds = (next_run - current_time).total_seconds()
                 logger.info(
                     f"Outside operating hours. Waiting {wait_seconds/3600:.1f} hours until {next_run.strftime('%I:%M %p %Z')}")
-                await asyncio.sleep(wait_seconds)
+
+                # Break wait into smaller intervals to check for shutdown
+                while wait_seconds > 0 and not is_shutting_down:
+                    # Wait max 1 minute at a time
+                    await asyncio.sleep(min(60, wait_seconds))
+                    wait_seconds -= 60
                 continue
+
+            if is_shutting_down:
+                break
 
             # Get database session with retry
             try:
@@ -404,34 +459,39 @@ async def send_special_email():
                             logger.error(
                                 f"Error sending email to {user_id}: {str(user_error)}")
 
-                # Wait for 10 minutes before next check
+                # Wait for 10 minutes before next check, but check for shutdown every 30 seconds
                 logger.info(
                     "Emails sent successfully. Waiting 10 minutes before next check.")
-                await asyncio.sleep(600)
+                for _ in range(20):  # 20 * 30 seconds = 10 minutes
+                    if is_shutting_down:
+                        break
+                    await asyncio.sleep(30)
 
             except Exception as db_error:
+                if is_shutting_down:
+                    break
+
                 connection_error_count += 1
                 logger.error(
                     f"Database error in send_special_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
 
-                # If we've had too many consecutive errors, restart the task
                 if connection_error_count >= max_connection_errors:
                     logger.critical(
                         "Too many consecutive database errors. Restarting task.")
                     connection_error_count = 0
-                    await asyncio.sleep(60)  # Wait a bit before restarting
-                    break  # Break out of the loop to restart
+                    await asyncio.sleep(60)
+                    break
 
-                # Increasing backoff
                 await asyncio.sleep(RETRY_DELAY * connection_error_count)
                 continue
 
         except Exception as e:
+            if is_shutting_down:
+                break
             logger.error(f"Error in send_special_email: {str(e)}")
-            await asyncio.sleep(60)  # Wait 1 minute before retrying on error
+            await asyncio.sleep(60)
 
         finally:
-            # Always ensure the database connection is closed
             if db:
                 try:
                     db.close()
@@ -440,6 +500,8 @@ async def send_special_email():
                     logger.error(
                         f"Error closing database connection: {str(close_error)}")
                 db = None
+
+    logger.info("Special email task shutting down")
 
 
 def get_special_email_subject(arb_bets: list, ev_bets: list) -> str:

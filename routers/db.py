@@ -25,6 +25,9 @@ from sqlalchemy import Float, cast
 from src.auth import verify_auth_token, TokenPayload
 from pydantic import BaseModel
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 router = APIRouter(tags=["db"])
@@ -33,28 +36,30 @@ router = APIRouter(tags=["db"])
 @router.get("/evBets")
 async def get_ev_bets(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
+        # Read operations don't need transaction management
         bets = db.query(PlusEv).order_by(desc(PlusEv.ev_percentage)).all()
         return [bet.__dict__ for bet in bets]
     except Exception as e:
-        print(f"Error in get_ev_bets: {str(e)}")
+        logger.error(f"Error in get_ev_bets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/arbitrageBets")
 async def get_arbitrage_bets(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
+        # Read operations don't need transaction management
         bets = db.query(Arbitrage).order_by(
             desc(Arbitrage.profit_percentage)).all()
         return [bet.__dict__ for bet in bets]
     except Exception as e:
-        print(f"Error in get_arbitrage_bets: {str(e)}")
+        logger.error(f"Error in get_arbitrage_bets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/arbitrageFreeBet")
 async def get_arbitrage_free_bet(db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
-        # First get all arbitrage bets
+        # Read operations don't need transaction management
         bets = db.query(Arbitrage).filter(
             Arbitrage.opportunity_type == "Arbitrage"
         ).all()
@@ -71,7 +76,7 @@ async def get_arbitrage_free_bet(db: Session = Depends(get_db), token: TokenPayl
 
         return [bet.__dict__ for bet in filtered_bets]
     except Exception as e:
-        print(f"Error in get_arbitrage_free_bet: {str(e)}")
+        logger.error(f"Error in get_arbitrage_free_bet: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -89,38 +94,38 @@ async def update_db(db: Session = Depends(get_db)):
         arb_json = json.loads(arb_df.to_json(orient="records"))
         ev_json = json.loads(ev_df.to_json(orient="records"))
 
+        # Process market data
         for record in arb_json:
             if 'market_data' in record and record['market_data'] is not None:
                 market_data_str = orjson.dumps(record['market_data'])
                 compressed_data = gzip.compress(market_data_str)
                 record['market_data'] = base64.b64encode(
                     compressed_data).decode()
+
         for record in ev_json:
             if 'market_data' in record and record['market_data'] is not None:
                 market_data_str = orjson.dumps(record['market_data'])
                 compressed_data = gzip.compress(market_data_str)
                 record['market_data'] = base64.b64encode(
                     compressed_data).decode()
-        print(arb_json[0])
-        print(ev_json[0])
-        # Delete existing records
-        db.query(Arbitrage).delete()
-        db.query(PlusEv).delete()
-        db.commit()
 
-        # Insert new records in batches
-        batch_size = 1000
-        for i in range(0, len(arb_json), batch_size):
-            batch = arb_json[i:i + batch_size]
-            for record in batch:
-                db.add(Arbitrage(**record))
-            db.commit()
+        # Use transaction context manager for all database operations
+        with db.begin():
+            # Delete existing records
+            db.query(Arbitrage).delete()
+            db.query(PlusEv).delete()
 
-        for i in range(0, len(ev_json), batch_size):
-            batch = ev_json[i:i + batch_size]
-            for record in batch:
-                db.add(PlusEv(**record))
-            db.commit()
+            # Insert new records in batches
+            batch_size = 1000
+            for i in range(0, len(arb_json), batch_size):
+                batch = arb_json[i:i + batch_size]
+                for record in batch:
+                    db.add(Arbitrage(**record))
+
+            for i in range(0, len(ev_json), batch_size):
+                batch = ev_json[i:i + batch_size]
+                for record in batch:
+                    db.add(PlusEv(**record))
 
         return {
             "code": 200,
@@ -128,8 +133,8 @@ async def update_db(db: Session = Depends(get_db)):
             "message": "Database updated successfully"
         }
     except Exception as e:
-        print(f"Error in update_dbV3: {str(e)}")
-        db.rollback()
+        logger.error(f"Error in update_dbV3: {str(e)}")
+        # No need for explicit rollback, context manager handles it
         return {
             "code": 500,
             "status": "Error",
@@ -137,84 +142,63 @@ async def update_db(db: Session = Depends(get_db)):
         }
 
 
-# 1. Fetch all data from raw df, then delete the old records in ev graph 2 that are past their commence time.
-# 2. Fetch existing records from ev graph 2.
-# 3. Split raw df into two parts: existing bets and new bets.
-# 4. Process existing bets:
-#   - Add new entries to past_data for existing bets.
-#   - Create update with ONLY the fields we're changing.
-#   - upsert to graph
-# 5. Process new bets:
-#   - Create full record with initial past_data.
-#   - Remove None values.
-#   - Insert to graph
-# 5:
-
-
 @router.post("/update_graph")
 async def update_graph(db: Session = Depends(get_db)):
     try:
         start_time = time.time()
         data = await get_all_data()
-
         raw_df = data[0]
 
-        # ✅ Step 1: Clear old records
-        try:
+        # Use transaction context manager for all database operations
+        with db.begin():
+            # Clear old records
             db.query(EvGraphV2).filter(
-                (EvGraphV2.commence_time < datetime.datetime.now(timezone.utc)) |
+                (EvGraphV2.commence_time < datetime.now(timezone.utc)) |
                 (EvGraphV2.commence_time.is_(None))
             ).delete()
-            db.commit()
-        except Exception as e:
-            print(f"Warning: Error clearing old records: {str(e)}")
-            db.rollback()
 
-        # ✅ Step 2: Convert raw records
-        raw_records = json.loads(raw_df.to_json(orient="records"))
-        processed_records = {}
+            # Process raw records
+            raw_records = json.loads(raw_df.to_json(orient="records"))
+            processed_records = {}
 
-        for row in raw_records:
-            bet_key = row.get("bet_key")
-            new_entry = {
-                "timestamp": row.get("timestamp"),
-                "odds": row.get("odds"),
-                "bookmaker": row.get("bookmaker"),
-                "team": row.get("team"),
-                "market_point": row.get("market_point"),
-            }
-
-            # If `bet_key` is seen before in this batch, append to its `past_data`
-            if bet_key in processed_records:
-                processed_records[bet_key]["past_data"].append(new_entry)
-            else:
-                record_data = {
-                    "bet_key": bet_key,
-                    "sport_key": row.get("sport_key"),
-                    "game": row.get("game"),
-                    "team": row.get("team"),
-                    "home_team": row.get("home_team"),
-                    "away_team": row.get("away_team"),
-                    "sport": row.get("sport"),
-                    "market_type": row.get("market_type"),
-                    "market_point": row.get("market_point"),
-                    "odds": row.get("odds"),
+            for row in raw_records:
+                bet_key = row.get("bet_key")
+                new_entry = {
                     "timestamp": row.get("timestamp"),
-                    "commence_time": row.get("commence_time"),
+                    "odds": row.get("odds"),
                     "bookmaker": row.get("bookmaker"),
-                    "link": row.get("link"),
-                    "past_data": [new_entry],  # Initialize with one entry
+                    "team": row.get("team"),
+                    "market_point": row.get("market_point"),
                 }
-                processed_records[bet_key] = record_data
 
-        # Convert dictionary to list of values
-        final_records = list(processed_records.values())
+                if bet_key in processed_records:
+                    processed_records[bet_key]["past_data"].append(new_entry)
+                else:
+                    record_data = {
+                        "bet_key": bet_key,
+                        "sport_key": row.get("sport_key"),
+                        "game": row.get("game"),
+                        "team": row.get("team"),
+                        "home_team": row.get("home_team"),
+                        "away_team": row.get("away_team"),
+                        "sport": row.get("sport"),
+                        "market_type": row.get("market_type"),
+                        "market_point": row.get("market_point"),
+                        "odds": row.get("odds"),
+                        "timestamp": row.get("timestamp"),
+                        "commence_time": row.get("commence_time"),
+                        "bookmaker": row.get("bookmaker"),
+                        "link": row.get("link"),
+                        "past_data": [new_entry],
+                    }
+                    processed_records[bet_key] = record_data
 
-        # ✅ Step 3: Bulk Upsert
-        try:
+            final_records = list(processed_records.values())
+
+            # Bulk upsert
             stmt = insert(EvGraphV2).values(final_records)
             stmt = stmt.on_conflict_do_update(
-                index_elements=["bet_key"],  # Use unique bet_key constraint
+                index_elements=["bet_key"],
                 set_={
                     "sport_key": stmt.excluded.sport_key,
                     "game": stmt.excluded.game,
@@ -229,16 +213,10 @@ async def update_graph(db: Session = Depends(get_db)):
                     "commence_time": stmt.excluded.commence_time,
                     "bookmaker": stmt.excluded.bookmaker,
                     "link": stmt.excluded.link,
-                    # Append new `past_data` to existing JSONB list
                     "past_data": EvGraphV2.past_data + stmt.excluded.past_data,
                 }
             )
             db.execute(stmt)
-            db.commit()
-        except Exception as e:
-            print(f"Error during bulk upsert: {str(e)}")
-            db.rollback()
-            return {"code": 500, "status": "Error", "message": str(e)}
 
         execution_time = time.time() - start_time
         return {
@@ -253,9 +231,9 @@ async def update_graph(db: Session = Depends(get_db)):
         }
 
     except Exception as e:
-        print(f"Error in update_graph: {str(e)}")
+        logger.error(f"Error in update_graph: {str(e)}")
         traceback.print_exc()
-        db.rollback()
+        # No need for explicit rollback, context manager handles it
         return {"code": 500, "status": "Error", "message": str(e)}
 
 
@@ -269,6 +247,7 @@ class BetData(BaseModel):
 @router.post("/get_bet_data")
 async def get_bet_data(bet: BetData, db: Session = Depends(get_db), token: TokenPayload = Depends(verify_auth_token)):
     try:
+        # Read operation doesn't need transaction management
         matching_bet = db.query(EvGraphV2).filter(
             EvGraphV2.game == bet.game,
             EvGraphV2.market_type == bet.market_type,
@@ -282,10 +261,5 @@ async def get_bet_data(bet: BetData, db: Session = Depends(get_db), token: Token
         return [bet.__dict__ for bet in matching_bet]
 
     except Exception as e:
-        print(f"Error in get_bet_data: {str(e)}")
-        db.rollback()
-        return {
-            "code": 500,
-            "status": "Error",
-            "message": str(e)
-        }
+        logger.error(f"Error in get_bet_data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
