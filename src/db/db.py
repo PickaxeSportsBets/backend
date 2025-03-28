@@ -19,12 +19,13 @@ SQLALCHEMY_DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_P
 # Adding connection pool settings to handle long-running connections
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_pre_ping=True,                   # Verify connection is still valid before using
-    pool_recycle=1800,                    # Recycle connections after 30 minutes
-    pool_size=10,                         # Maximum number of connections to keep
-    max_overflow=20,
-    pool_timeout=30                       # Timeout for getting a connection from the pool
+    pool_pre_ping=True,
+    pool_recycle=1800,  # Keep recycling old connections
+    pool_size=20,       # Increase max active connections (default is 10)
+    max_overflow=40,    # Allow 40 additional connections (total: 60)
+    pool_timeout=30     # Wait 30s before failing if no connection is available
 )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
