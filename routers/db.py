@@ -153,7 +153,7 @@ async def update_graph(db: Session = Depends(get_db)):
         with db.begin():
             # Clear old records
             db.query(EvGraphV2).filter(
-                (EvGraphV2.commence_time < datetime.now(timezone.utc)) |
+                (EvGraphV2.commence_time < datetime.datetime.now(timezone.utc)) |
                 (EvGraphV2.commence_time.is_(None))
             ).delete()
 
