@@ -310,14 +310,16 @@ async def send_regular_emails():
                 logger.info(f"===== Completed email cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
 
                 # Wait for next cycle
-                logger.info(f"Waiting {EMAIL_INTERVAL_MINUTES} minutes until next email cycle")
-                for _ in range(EMAIL_INTERVAL_MINUTES):
-                    if is_shutting_down or force_shutdown:
-                        break
-                    try:
-                        await asyncio.wait_for(asyncio.sleep(60), timeout=1)
-                    except asyncio.TimeoutError:
-                        continue
+                next_run_time = datetime.now() + timedelta(minutes=EMAIL_INTERVAL_MINUTES)
+                logger.info(f"Waiting until {next_run_time.strftime('%Y-%m-%d %H:%M:%S')} for next email cycle")
+                
+                # Sleep in smaller chunks to allow for graceful shutdown
+                remaining_seconds = EMAIL_INTERVAL_MINUTES * 60
+                while remaining_seconds > 0 and not is_shutting_down and not force_shutdown:
+                    # Sleep in 10-second chunks for better responsiveness to shutdown
+                    sleep_time = min(10, remaining_seconds)
+                    await asyncio.sleep(sleep_time)
+                    remaining_seconds -= sleep_time
 
             except Exception as db_error:
                 if is_shutting_down or force_shutdown:
