@@ -38,6 +38,9 @@ template_env = jinja2.Environment(loader=template_loader)
 MAX_RETRIES = 5
 RETRY_DELAY = 5  # seconds
 
+# Email sending interval (in minutes)
+EMAIL_INTERVAL_MINUTES = 30
+
 # Global flags for shutdown
 is_shutting_down = False
 force_shutdown = False
@@ -53,8 +56,7 @@ def handle_shutdown(signum, frame):
     """Signal handler for graceful shutdown"""
     global is_shutting_down, force_shutdown
     if is_shutting_down:
-        logger.warning(
-            "Received second shutdown signal, forcing immediate exit")
+        logger.warning("Received second shutdown signal, forcing immediate exit")
         force_shutdown = True
         force_exit()
     else:
@@ -75,16 +77,14 @@ signal.signal(signal.SIGALRM, lambda signum, frame: force_exit())
     (OperationalError, Exception),
     max_tries=2,  # Reduced retries during shutdown
     max_time=5,   # Reduced timeout during shutdown
-    giveup=lambda e: "authentication failed" in str(
-        e).lower() or is_shutting_down
+    giveup=lambda e: "authentication failed" in str(e).lower() or is_shutting_down
 )
 def get_db_with_retry():
     """Get database session with retry logic"""
     global is_shutting_down, force_shutdown
 
     if is_shutting_down or force_shutdown:
-        logger.info(
-            "Shutdown in progress, skipping database connection attempt")
+        logger.info("Shutdown in progress, skipping database connection attempt")
         raise Exception("Application is shutting down")
 
     try:
@@ -106,8 +106,7 @@ def get_email_subject(arb_bets: list, ev_bets: list) -> str:
     best_arb = max((float(bet.profit_percentage)
                    for bet in arb_bets), default=0)
     best_ev = max((float(bet.ev_percentage) for bet in ev_bets), default=0)
-    print("Best")
-    print(best_arb, best_ev)
+    logger.debug(f"Best arb: {best_arb}%, Best EV: {best_ev}%")
 
     # Base options for variety
     if best_arb > 2 and best_ev > 4:
@@ -129,28 +128,13 @@ def get_email_subject(arb_bets: list, ev_bets: list) -> str:
     return subject.strip(" |")
 
 
-def is_within_operating_hours() -> bool:
-    """Check if current time is within operating hours (8-11 PM EST)"""
-    est = pytz.timezone('US/Eastern')
-    current_time = datetime.now(est)
-
-    # Define operating hours (20:00 - 23:00 EST)
-    start_time = time(8, 0)  # 8 PM EST
-    end_time = time(23, 0)    # 11 PM EST
-
-    current_hour = current_time.time()
-
-    return start_time <= current_hour <= end_time
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global is_shutting_down
 
     logger.info("Starting email cron background tasks")
-    # Start both email tasks
-    daily_task = asyncio.create_task(send_daily_email())
-    special_task = asyncio.create_task(send_special_email())
+    # Start regular email task that runs every 30 minutes
+    email_task = asyncio.create_task(send_regular_emails())
 
     try:
         yield
@@ -158,21 +142,18 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down email cron background tasks")
         is_shutting_down = True
 
-        # Cancel both tasks immediately
-        daily_task.cancel()
-        special_task.cancel()
+        # Cancel task immediately
+        email_task.cancel()
 
         try:
-            # Wait for tasks with a shorter timeout
+            # Wait for task with a shorter timeout
             await asyncio.wait_for(
-                asyncio.gather(daily_task, special_task,
-                               return_exceptions=True),
-                timeout=3  # Reduced timeout to 3 seconds
+                asyncio.gather(email_task, return_exceptions=True),
+                timeout=3  # 3 second timeout for cleanup
             )
             logger.info("Email tasks successfully shut down")
         except asyncio.TimeoutError:
-            logger.warning(
-                "Timeout while waiting for tasks to shut down - forcing exit")
+            logger.warning("Timeout while waiting for tasks to shut down - forcing exit")
             force_shutdown = True
             force_exit()
         except asyncio.CancelledError:
@@ -193,40 +174,22 @@ def format_bet_link(link: str) -> str:
     return link
 
 
-async def send_daily_email():
+async def send_regular_emails():
+    """Send emails every 30 minutes with the latest bets"""
     connection_error_count = 0
     max_connection_errors = 5
+    
+    logger.info(f"Email service started - emails will be sent every {EMAIL_INTERVAL_MINUTES} minutes")
 
     while not is_shutting_down:
         db = None
         try:
-            # Check if we're within operating hours
-            if not is_within_operating_hours():
-                # Calculate time until next check
-                est = pytz.timezone('US/Eastern')
-                current_time = datetime.now(est)
-
-                if current_time.time() < time(20, 0):  # Before 8 PM
-                    next_run = current_time.replace(
-                        hour=20, minute=0, second=0, microsecond=0)
-                else:  # After 11 PM
-                    next_run = current_time.replace(
-                        hour=20, minute=0, second=0, microsecond=0)
-                    next_run += timedelta(days=1)
-
-                wait_seconds = (next_run - current_time).total_seconds()
-                logger.info(
-                    f"Outside operating hours. Waiting {wait_seconds/3600:.1f} hours until {next_run.strftime('%I:%M %p %Z')}")
-
-                # Break wait into smaller intervals to check for shutdown
-                while wait_seconds > 0 and not is_shutting_down:
-                    # Wait max 1 minute at a time
-                    await asyncio.sleep(min(60, wait_seconds))
-                    wait_seconds -= 60
-                continue
-
-            if is_shutting_down or force_shutdown:
+            if force_shutdown:
                 break
+
+            # Log the start of a new email cycle
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"===== Starting email cycle at {current_time} =====")
 
             # Get database session with retry
             try:
@@ -240,9 +203,26 @@ async def send_daily_email():
                 ).all()
                 active_subscriptions = [
                     sub for sub in active_subscriptions if sub.current_period_end >= datetime.now(timezone.utc)]
-                logger.info(
-                    f"Active subscriptions: {len(active_subscriptions)}")
+                num_subscriptions = len(active_subscriptions)
+                logger.info(f"Found {num_subscriptions} active subscriptions")
+                
+                if num_subscriptions == 0:
+                    logger.info("No active subscriptions found, skipping email cycle")
+                    if db:
+                        db.close()
+                        db = None
+                    
+                    # Wait for the next cycle
+                    for _ in range(EMAIL_INTERVAL_MINUTES):
+                        if is_shutting_down or force_shutdown:
+                            break
+                        try:
+                            await asyncio.wait_for(asyncio.sleep(60), timeout=1)
+                        except asyncio.TimeoutError:
+                            continue
+                    continue
 
+                # Get bets data
                 arb_bets = db.query(Arbitrage).filter(
                     Arbitrage.opportunity_type == "Arbitrage",
                     cast(Arbitrage.profit_percentage, Numeric) > 0
@@ -251,52 +231,60 @@ async def send_daily_email():
                 # Get top 5 EV bets
                 ev_bets = db.query(PlusEv).order_by(
                     desc(PlusEv.ev_percentage)).limit(5).all()
+                
+                logger.info(f"Found {len(arb_bets)} arbitrage bets and {len(ev_bets)} EV bets")
 
-                # Format numeric values in arb_bets
+                # Format numeric values
                 for bet in arb_bets:
                     bet.profit_percentage = float(bet.profit_percentage)
-                    bet.team1_stake = float(
-                        bet.team1_stake) if bet.team1_stake else 0
-                    bet.team2_stake = float(
-                        bet.team2_stake) if bet.team2_stake else 0
-                    bet.team1_odds = float(
-                        bet.team1_odds) if bet.team1_odds else 0
-                    bet.team2_odds = float(
-                        bet.team2_odds) if bet.team2_odds else 0
+                    bet.team1_stake = float(bet.team1_stake) if bet.team1_stake else 0
+                    bet.team2_stake = float(bet.team2_stake) if bet.team2_stake else 0
+                    bet.team1_odds = float(bet.team1_odds) if bet.team1_odds else 0
+                    bet.team2_odds = float(bet.team2_odds) if bet.team2_odds else 0
                     bet.team1_link = format_bet_link(bet.team1_link)
                     bet.team2_link = format_bet_link(bet.team2_link)
 
-                # Format numeric values in ev_bets
                 for bet in ev_bets:
                     bet.ev_percentage = float(bet.ev_percentage)
                     bet.odds = float(bet.odds) if bet.odds else 0
-                    bet.fair_odds = float(
-                        bet.fair_odds) if bet.fair_odds else 0
+                    bet.fair_odds = float(bet.fair_odds) if bet.fair_odds else 0
                     bet.link = format_bet_link(bet.link)
 
-                # Always close the DB connection after fetching data
+                # Close DB connection after fetching data
                 if db:
                     db.close()
                     db = None
 
-                # Now send emails with the fetched data
-                logger.info("Sending hourly email")
-                users = set(
-                    subscription.clerk_user_id for subscription in active_subscriptions)
-                info = []
-
+                # Special check for high-value bets
+                has_special_bets = any(bet.profit_percentage > 3 for bet in arb_bets) or any(bet.ev_percentage > 10 for bet in ev_bets)
+                
+                # Create user list
+                users = set(subscription.clerk_user_id for subscription in active_subscriptions)
+                
+                # Prepare email subject
+                subject = get_email_subject(arb_bets, ev_bets)
+                if has_special_bets:
+                    subject = "🔥 HOT PICKS: " + subject
+                
+                logger.info(f"Sending email with subject: {subject}")
+                
+                # Send emails
+                emails_sent = 0
                 with Clerk(bearer_auth=os.environ.get("CLERK_SECRET_KEY")) as clerk:
                     for user_id in users:
                         try:
                             user = clerk.users.get(user_id=user_id)
                             name = user.first_name + " " + user.last_name
                             email = user.email_addresses[0].email_address
-                            logger.info(f"Name: {name}, Email: {email}")
+                            
                             sender_email = "pickaxebets@gmail.com"
                             sender_password = email_password
                             recipient_email = email
-                            template = template_env.get_template(
-                                'template.html')
+                            
+                            # Choose template based on special bets
+                            template_name = 'specialEmail.html' if has_special_bets else 'template.html'
+                            template = template_env.get_template(template_name)
+                            
                             html = template.render(
                                 email=email,
                                 name=name,
@@ -304,21 +292,26 @@ async def send_daily_email():
                                 evBets=ev_bets,
                             )
 
-                            subject = get_email_subject(arb_bets, ev_bets)
                             html_message = MIMEText(html, "html")
                             html_message['Subject'] = subject
                             html_message['From'] = sender_email
                             html_message['To'] = recipient_email
+                            
                             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
                                 server.login(sender_email, sender_password)
-                                server.sendmail(
-                                    sender_email, recipient_email, html_message.as_string())
+                                server.sendmail(sender_email, recipient_email, html_message.as_string())
+                            
+                            emails_sent += 1
                         except Exception as user_error:
-                            logger.error(
-                                f"Error sending email to {user_id}: {str(user_error)}")
+                            logger.error(f"Error sending email to {user_id}: {str(user_error)}")
 
-                # Modified sleep pattern for faster shutdown response
-                for _ in range(60):  # 60 minutes
+                # Log completion
+                logger.info(f"Successfully sent {emails_sent} emails out of {len(users)} users")
+                logger.info(f"===== Completed email cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
+
+                # Wait for next cycle
+                logger.info(f"Waiting {EMAIL_INTERVAL_MINUTES} minutes until next email cycle")
+                for _ in range(EMAIL_INTERVAL_MINUTES):
                     if is_shutting_down or force_shutdown:
                         break
                     try:
@@ -331,194 +324,24 @@ async def send_daily_email():
                     break
 
                 connection_error_count += 1
-                logger.error(
-                    f"Database error in send_daily_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
+                logger.error(f"Database error in send_regular_emails ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
 
                 if connection_error_count >= max_connection_errors:
-                    logger.critical(
-                        "Too many consecutive database errors. Restarting task.")
+                    logger.critical("Too many consecutive database errors. Restarting task.")
                     connection_error_count = 0
                     await asyncio.sleep(60)
-                    break
-
-                await asyncio.sleep(RETRY_DELAY * connection_error_count)
-                continue
-
-        except asyncio.CancelledError:
-            logger.info("Daily email task cancelled")
-            break
-        except Exception as e:
-            if is_shutting_down or force_shutdown:
-                break
-            logger.error(f"Error in send_daily_email: {str(e)}")
-            await asyncio.sleep(1)  # Reduced sleep time
-
-        finally:
-            if db:
-                try:
-                    db.close()
-                    logger.info("Database connection closed")
-                except Exception as close_error:
-                    logger.error(
-                        f"Error closing database connection: {str(close_error)}")
-                db = None
-
-    logger.info("Daily email task shutting down")
-
-
-async def send_special_email():
-    connection_error_count = 0
-    max_connection_errors = 5
-
-    while not is_shutting_down:
-        db = None
-        try:
-            # Check if we're within operating hours
-            if not is_within_operating_hours():
-                # Calculate time until next check
-                est = pytz.timezone('US/Eastern')
-                current_time = datetime.now(est)
-
-                if current_time.time() < time(20, 0):  # Before 8 PM
-                    next_run = current_time.replace(
-                        hour=20, minute=0, second=0, microsecond=0)
-                else:  # After 11 PM
-                    next_run = current_time.replace(
-                        hour=20, minute=0, second=0, microsecond=0)
-                    next_run += timedelta(days=1)
-
-                wait_seconds = (next_run - current_time).total_seconds()
-                logger.info(
-                    f"Outside operating hours. Waiting {wait_seconds/3600:.1f} hours until {next_run.strftime('%I:%M %p %Z')}")
-
-                # Break wait into smaller intervals to check for shutdown
-                while wait_seconds > 0 and not is_shutting_down:
-                    # Wait max 1 minute at a time
-                    await asyncio.sleep(min(60, wait_seconds))
-                    wait_seconds -= 60
-                continue
-
-            if is_shutting_down or force_shutdown:
-                break
-
-            # Get database session with retry
-            try:
-                db = get_db_with_retry()
-                # Reset error count on successful connection
-                connection_error_count = 0
-
-                # Get active subscriptions
-                active_subscriptions = db.query(Subscriptions).filter(
-                    Subscriptions.status == "active"
-                ).all()
-                active_subscriptions = [
-                    sub for sub in active_subscriptions if sub.current_period_end >= datetime.now(timezone.utc)]
-                logger.info(
-                    f"Active subscriptions: {len(active_subscriptions)}")
-
-                # Get high-value arbitrage bets
-                arb_bets = db.query(Arbitrage).filter(
-                    Arbitrage.opportunity_type == "Arbitrage",
-                    cast(Arbitrage.profit_percentage, Numeric) > 3
-                ).all()
-
-                # Get high-value EV bets
-                ev_bets = db.query(PlusEv).filter(
-                    cast(PlusEv.ev_percentage, Numeric) > 10
-                ).order_by(desc(PlusEv.ev_percentage)).all()
-
-                # Close DB connection after data retrieval
-                if db:
-                    db.close()
-                    db = None
-
-                if len(arb_bets) == 0 and len(ev_bets) == 0:
-                    logger.info(
-                        "No special bets found. Waiting 10 minutes before next check.")
-                    await asyncio.sleep(600)
                     continue
 
-                # Format links in arb_bets
-                for bet in arb_bets:
-                    bet.team1_link = format_bet_link(bet.team1_link)
-                    bet.team2_link = format_bet_link(bet.team2_link)
-
-                # Format links in ev_bets
-                for bet in ev_bets:
-                    bet.link = format_bet_link(bet.link)
-
-                logger.info("Sending special email")
-                users = set(
-                    subscription.clerk_user_id for subscription in active_subscriptions)
-                info = []
-
-                with Clerk(bearer_auth=os.environ.get("CLERK_SECRET_KEY")) as clerk:
-                    for user_id in users:
-                        try:
-                            user = clerk.users.get(user_id=user_id)
-                            name = user.first_name + " " + user.last_name
-                            email = user.email_addresses[0].email_address
-                            logger.info(f"Name: {name}, Email: {email}")
-                            sender_email = "pickaxebets@gmail.com"
-                            sender_password = email_password
-                            recipient_email = email
-                            template = template_env.get_template(
-                                'specialEmail.html')
-                            html = template.render(
-                                email=email,
-                                name=name,
-                                arbBets=arb_bets,
-                                evBets=ev_bets,
-                            )
-
-                            subject = get_special_email_subject(
-                                arb_bets, ev_bets)
-                            html_message = MIMEText(html, "html")
-                            html_message['Subject'] = subject
-                            html_message['From'] = sender_email
-                            html_message['To'] = recipient_email
-                            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                                server.login(sender_email, sender_password)
-                                server.sendmail(
-                                    sender_email, recipient_email, html_message.as_string())
-                        except Exception as user_error:
-                            logger.error(
-                                f"Error sending email to {user_id}: {str(user_error)}")
-
-                # Modified sleep pattern for faster shutdown response
-                for _ in range(20):  # 10 minutes (20 * 30 seconds)
-                    if is_shutting_down or force_shutdown:
-                        break
-                    try:
-                        await asyncio.wait_for(asyncio.sleep(30), timeout=1)
-                    except asyncio.TimeoutError:
-                        continue
-
-            except Exception as db_error:
-                if is_shutting_down or force_shutdown:
-                    break
-
-                connection_error_count += 1
-                logger.error(
-                    f"Database error in send_special_email ({connection_error_count}/{max_connection_errors}): {str(db_error)}")
-
-                if connection_error_count >= max_connection_errors:
-                    logger.critical(
-                        "Too many consecutive database errors. Restarting task.")
-                    connection_error_count = 0
-                    await asyncio.sleep(60)
-                    break
-
                 await asyncio.sleep(RETRY_DELAY * connection_error_count)
                 continue
 
         except asyncio.CancelledError:
-            logger.info("Special email task cancelled")
+            logger.info("Email task cancelled")
             break
         except Exception as e:
             if is_shutting_down or force_shutdown:
                 break
-            logger.error(f"Error in send_special_email: {str(e)}")
+            logger.error(f"Error in send_regular_emails: {str(e)}")
             await asyncio.sleep(1)  # Reduced sleep time
 
         finally:
@@ -527,11 +350,10 @@ async def send_special_email():
                     db.close()
                     logger.info("Database connection closed")
                 except Exception as close_error:
-                    logger.error(
-                        f"Error closing database connection: {str(close_error)}")
+                    logger.error(f"Error closing database connection: {str(close_error)}")
                 db = None
 
-    logger.info("Special email task shutting down")
+    logger.info("Email task shutting down")
 
 
 def get_special_email_subject(arb_bets: list, ev_bets: list) -> str:
@@ -549,3 +371,60 @@ def get_special_email_subject(arb_bets: list, ev_bets: list) -> str:
         subject = "🎯 High-Value Betting Alert!"
 
     return subject
+
+
+@router.get("/trigger-email")
+async def trigger_email():
+    """API endpoint to manually trigger an email send"""
+    try:
+        # Create a background task to send emails without blocking the response
+        asyncio.create_task(send_immediate_email())
+        return {"status": "success", "message": "Email sending triggered"}
+    except Exception as e:
+        logger.error(f"Error triggering email: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+async def send_immediate_email():
+    """Function to send emails immediately when triggered via API"""
+    db = None
+    try:
+        logger.info("===== Manual email trigger initiated =====")
+        
+        db = get_db_with_retry()
+        
+        # Get active subscriptions
+        active_subscriptions = db.query(Subscriptions).filter(
+            Subscriptions.status == "active"
+        ).all()
+        active_subscriptions = [
+            sub for sub in active_subscriptions if sub.current_period_end >= datetime.now(timezone.utc)]
+        logger.info(f"Found {len(active_subscriptions)} active subscriptions")
+        
+        # Get bets data
+        arb_bets = db.query(Arbitrage).filter(
+            Arbitrage.opportunity_type == "Arbitrage",
+            cast(Arbitrage.profit_percentage, Numeric) > 0
+        ).all()
+
+        # Get top 5 EV bets
+        ev_bets = db.query(PlusEv).order_by(
+            desc(PlusEv.ev_percentage)).limit(5).all()
+        
+        # Format data and send emails (similar to send_regular_emails)
+        # ... (format bet data code)
+        
+        # Close DB connection
+        if db:
+            db.close()
+            db = None
+            
+        logger.info("===== Manual email sending completed =====")
+    except Exception as e:
+        logger.error(f"Error in manual email send: {str(e)}")
+    finally:
+        if db:
+            try:
+                db.close()
+            except:
+                pass
