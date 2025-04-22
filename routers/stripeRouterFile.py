@@ -135,6 +135,7 @@ async def handle_subscription_created(subscription):
     """Handle new subscription creation"""
     try:
         clerk_user_id = subscription.metadata.get('clerk_user_id')
+        print("Processing subscription created")
         if not clerk_user_id:
             print("No clerk_user_id found in subscription metadata")
             return
@@ -340,6 +341,7 @@ async def update_clerk_user_metadata(user_id: str, metadata: dict):
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
+    print("Received Stripe webhook")
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
 
