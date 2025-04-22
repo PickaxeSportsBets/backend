@@ -78,6 +78,7 @@ async def create_checkout_session(request: CheckoutRequest):
             metadata={
                 "clerk_user_id": request.clerk_user_id
             },
+            allow_promotion_codes=True,
             subscription_data={
                 "metadata": {
                     "clerk_user_id": request.clerk_user_id
