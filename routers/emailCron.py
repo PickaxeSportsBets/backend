@@ -39,7 +39,7 @@ MAX_RETRIES = 5
 RETRY_DELAY = 5  # seconds
 
 # Email sending interval (in minutes)
-EMAIL_INTERVAL_MINUTES = 30
+EMAIL_INTERVAL_MINUTES = 60
 
 # Global flags for shutdown
 is_shutting_down = False
