@@ -85,12 +85,12 @@ class OddsArbitrageFinder:
 
         # Sports to track
         self.sports = [
-            # "americanfootball_ncaaf",
+            "americanfootball_ncaaf",
             "basketball_ncaab",
             "basketball_nba",
             "icehockey_nhl",
             "baseball_mlb",
-            # "americanfootball_nfl",
+            "americanfootball_nfl",
         ]
 
         # Market types
@@ -126,11 +126,10 @@ class OddsArbitrageFinder:
             "espnbet",
             "hardrockbet",
             "betmgm",
-            # "williamhill_us",
+            "williamhill_us",
             "betrivers",
             "pinnacle",
             "fanatics",
-            "caesars",
             "fliff",
         ]
 
