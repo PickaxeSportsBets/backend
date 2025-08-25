@@ -170,7 +170,6 @@ class OddsArbitrageFinder:
 
             async with self.session.get(url, params=params) as response:
                 if response.status == 429:  # Rate limit exceeded
-                    print("Rate limit exceeded - implementing backoff strategy")
                     await self.rate_limiter.handle_rate_limit()
                     # Retry with backoff
                     return await self.make_request(url, params)
@@ -183,18 +182,13 @@ class OddsArbitrageFinder:
                 return data
 
         except aiohttp.ClientError as e:
-            print(f"Error making request: {str(e)}")
             if isinstance(e, aiohttp.ClientResponseError):
-                print(f"Status: {e.status}")
-                print(f"Message: {e.message}")
-
                 if e.status == 429:  # Handle rate limit in exception case
                     await self.rate_limiter.handle_rate_limit()
                     return await self.make_request(url, params)
             return None
 
         except Exception as e:
-            print(f"Unexpected error in make_request: {str(e)}")
             return None
 
     async def get_featured_odds(self, sport: str) -> List[dict]:
@@ -961,7 +955,7 @@ class OddsArbitrageFinder:
             pinnacle_odds = {}
             for bm in all_bookmakers:
                 if not isinstance(bm, dict) or "title" not in bm:
-                    print(f"Skipping invalid bookmaker data: {bm}")
+    
                     continue
 
                 if bm["title"].lower() == "pinnacle":
@@ -1029,7 +1023,7 @@ class OddsArbitrageFinder:
                         ev_threshold=self.ev_threshold,
                     )
                 else:
-                    print(f"Unknown market type: {market_type}")
+    
                     continue
 
                 plus_ev_opportunities.extend(opportunities)

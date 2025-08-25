@@ -45,21 +45,11 @@ def _check_ev_opportunities_spreads(
     team_index = 0 if is_favorite else 1  # 0 for favorite, 1 for underdog
     fair_odd = fair_odds[team_index]      # Select corresponding fair odds
 
-    # Debug logging
-    print(
-        f"Checking {column} as {'favorite' if is_favorite else 'underdog'}, side={side}, team_index={team_index}")
-    print(
-        f"Team: {pin_odds_list[team_index]['team']}, Point: {pin_odds_list[team_index]['point']}, Fair Odd: {fair_odd}")
-
     for bm_title, odds_data in market_data[side]["odds"].items():
         if bm_title == "pinnacle":
             continue
 
         american_odds = odds_data["american"]
-
-        # Debug logging for each comparison
-        print(
-            f"Checking {bm_title} odds={american_odds} vs fair_odd={fair_odd} for {pin_odds_list[team_index]['team']} ({side})")
 
         # Updated is_better condition to handle all cases correctly
         is_better = (
@@ -95,9 +85,6 @@ def _check_ev_opportunities_spreads(
                     "player": None
                 }
                 plus_ev_opportunities.append(opportunity)
-                # Debug logging for found opportunities
-                print(
-                    f"Found +EV opportunity: {opportunity['team']} {side} {opportunity['bookmaker']} {opportunity['odds']} (point: {opportunity['market_point']})")
 
     return plus_ev_opportunities
 
@@ -138,15 +125,9 @@ def handle_ev_spreads(
         underdog_odds = pair[1] if float(pair[1]['point']) > 0 else pair[0]
         point_abs = abs(float(favorite_odds['point']))
 
-        # Debug logging for the pair
-        print(
-            f"\nProcessing spread pair: {favorite_odds['team']} {favorite_odds['point']} @ {favorite_odds['american']} vs {underdog_odds['team']} {underdog_odds['point']} @ {underdog_odds['american']}")
-
         # Devig odds
         fair_odds = power_devig(
             [favorite_odds['american'], underdog_odds['american']])
-        print(
-            f"Devigged fair odds: {fair_odds[0]} (favorite), {fair_odds[1]} (underdog)")
 
         # Initialize market data
         team_a_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -162,8 +143,7 @@ def handle_ev_spreads(
         team_a_is_favorite = favorite_odds["team"].lower() == team_a_name
         team_b_is_favorite = favorite_odds["team"].lower() == team_b_name
 
-        print(f"Team A ({team_a_name}) is_favorite={team_a_is_favorite}")
-        print(f"Team B ({team_b_name}) is_favorite={team_b_is_favorite}")
+
 
         # Pinnacle odds - ensure "over" has positive points and "under" has negative points
         # For team_a_market_data
@@ -263,14 +243,10 @@ def handle_ev_spreads(
                      favorite_odds["team"].lower() in outcome_team) and
                         outcome_point == point_favorite):
                     favorite_outcome = odds_data
-                    print(
-                        f"Matched favorite {favorite_odds['team']} at {outcome_point} for {bm_title}: {odds_data['american']}")
                 elif ((outcome_team in underdog_odds["team"].lower() or
                        underdog_odds["team"].lower() in outcome_team) and
                       outcome_point == point_underdog):
                     underdog_outcome = odds_data
-                    print(
-                        f"Matched underdog {underdog_odds['team']} at {outcome_point} for {bm_title}: {odds_data['american']}")
 
             # Only include bookmaker if both outcomes are present
             if favorite_outcome and underdog_outcome:
@@ -300,20 +276,7 @@ def handle_ev_spreads(
 
                 active_bookmakers.add(bm_title)
 
-        # Print market data for debugging
-        print(f"Team A ({team_a_name}) market data:")
-        for side in ["under", "over"]:
-            bookmakers_odds = []
-            for bm, odds in team_a_market_data[side]['odds'].items():
-                bookmakers_odds.append(f"{bm}: {odds['american']}")
-            print(f"  {side}: {bookmakers_odds}")
 
-        print(f"Team B ({team_b_name}) market data:")
-        for side in ["under", "over"]:
-            bookmakers_odds = []
-            for bm, odds in team_b_market_data[side]['odds'].items():
-                bookmakers_odds.append(f"{bm}: {odds['american']}")
-            print(f"  {side}: {bookmakers_odds}")
 
         # Check EV opportunities for both teams
         plus_ev_opportunities.extend(
