@@ -66,7 +66,7 @@ class OddsArbitrageFinder:
 
         # Thresholds
         self.low_hold_threshold = 1.1
-        self.ev_threshold = 3.0
+        self.ev_threshold = 2.0
 
         # Player props configuration
         self.player_props = {
