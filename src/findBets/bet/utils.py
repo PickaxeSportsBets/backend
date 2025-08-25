@@ -134,12 +134,15 @@ def market_consensus_fair_odds(bookmakers_data: List[dict]) -> dict:
     
     # Find pairs of teams that form two-way markets
     teams = list(team_outcomes.keys())
+    print(f"Debug: Found {len(teams)} teams: {teams}")
+    
     for i, team1 in enumerate(teams):
         for team2 in teams[i+1:]:
             # Check if these teams form a two-way market (same game)
             # This is a simplified check - you might need more sophisticated logic
             if len(teams) == 2:  # Simple case: exactly 2 teams
                 market_pairs[(team1, team2)] = (team1, team2)
+                print(f"Debug: Paired {team1} with {team2}")
                 break
     
     fair_odds_result = {}

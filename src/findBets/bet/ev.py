@@ -56,17 +56,59 @@ def calculate_fair_odds(pinnacle_odds_list: List[dict], all_bookmakers: List[dic
         # Convert data structure for market consensus function
         bookmakers_data = []
         for bookmaker in all_bookmakers:
-            if 'bookmaker' in bookmaker and 'outcomes' in bookmaker:
+            # Handle the actual API data structure
+            if 'title' in bookmaker and 'markets' in bookmaker:
+                # Convert from API format to expected format
+                converted_bookmaker = {
+                    'bookmaker': bookmaker['key'].lower(),
+                    'outcomes': []
+                }
+                
+                # Process each market (h2h, spreads, totals)
+                for market in bookmaker['markets']:
+                    if market['key'] in ['h2h', 'spreads', 'totals']:
+                        for outcome in market['outcomes']:
+                            # Convert decimal price to American odds
+                            decimal_price = outcome['price']
+                            american_odds = decimal_to_american(decimal_price)
+                            
+                            # For spreads and totals, include the point
+                            team_name = outcome['name']
+                            if market['key'] == 'spreads' and 'point' in outcome:
+                                # For spreads, include the point in team name
+                                point = outcome['point']
+                                team_name = f"{outcome['name']} {point:+g}"
+                            elif market['key'] == 'totals':
+                                # For totals, use Over/Under with point
+                                point = outcome.get('point', '')
+                                team_name = f"{outcome['name']} {point}"
+                            
+                            converted_bookmaker['outcomes'].append({
+                                'team': team_name,
+                                'american_odds': american_odds,
+                                'decimal_odds': decimal_price
+                            })
+                
+                if converted_bookmaker['outcomes']:
+                    bookmakers_data.append(converted_bookmaker)
+            elif 'bookmaker' in bookmaker and 'outcomes' in bookmaker:
+                # Already in expected format
                 bookmakers_data.append(bookmaker)
             else:
-                # Handle different data structure if needed
-                print(f"Warning: Unexpected bookmaker data structure: {bookmaker}")
+                # Skip unrecognized format
+                print(f"Warning: Unrecognized bookmaker data structure: {bookmaker}")
                 continue
         
         if not bookmakers_data:
             print("Warning: No valid bookmaker data found. Falling back to Pinnacle-only.")
             american_odds = [odds['american'] for odds in pinnacle_odds_list]
             return power_devig(american_odds)
+        
+        print(f"Debug: Converted {len(bookmakers_data)} bookmakers for market consensus")
+        for bm in bookmakers_data:
+            print(f"  {bm['bookmaker']}: {len(bm['outcomes'])} outcomes")
+            for outcome in bm['outcomes']:
+                print(f"    {outcome['team']}: {outcome['american_odds']}")
         
         # Calculate market consensus fair odds
         consensus_fair_odds = market_consensus_fair_odds(bookmakers_data)
