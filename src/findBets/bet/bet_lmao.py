@@ -52,7 +52,7 @@ class OddsArbitrageFinder:
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
 
-        print("Initializing OddsArbitrageFinder...")
+
 
         # Initialize session and rate limiter
         self.session = None
@@ -342,36 +342,23 @@ class OddsArbitrageFinder:
                     for bm in event.get("bookmakers", []):
                         bookmakers_found.add(bm.get("title", "").lower())
 
-                print(f"Found data from bookmakers: {sorted(bookmakers_found)}")
-                missing_books = (
-                    set(b.lower() for b in self.bookmakers) - bookmakers_found
-                )
-                if missing_books:
-                    print(f"Missing data from bookmakers: {sorted(missing_books)}")
+
 
         return data if data else []
 
     async def get_dfs(self) -> tuple:
         """Get DataFrames for arbitrage and +EV opportunities"""
         try:
-            print("Starting odds analysis...")
-
             # Generate arbitrage table
-            print("Generating arbitrage opportunities table...")
             arb_df = await self.generate_arbitrage_table()
-            print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
 
             # Create EV DataFrame
-            print("Processing +EV opportunities...")
             ev_df = pd.DataFrame(self.all_plus_ev)
 
             if not ev_df.empty:
-                print(f"Found {len(ev_df)} +EV opportunities")
                 # Ensure consistent primary key generation between raw and EV data
                 ev_df["primary_key"] = [str(uuid.uuid4()) for _ in range(len(ev_df))]
                 ev_df["timestamp"] = datetime.now(timezone.utc)
-            else:
-                print("No +EV opportunities found")
 
             if not arb_df.empty:
                 arb_df["primary_key"] = [str(uuid.uuid4()) for _ in range(len(arb_df))]
@@ -415,10 +402,6 @@ class OddsArbitrageFinder:
             arb_df = pd.DataFrame(arb_data, columns=arb_df.columns)
             ev_df = pd.DataFrame(ev_data, columns=ev_df.columns)
 
-            print(f"Found {len(raw_df)} raw odds entries")
-            print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
-            print(f"Found {len(ev_df)} +EV opportunities")
-
             if not raw_df.empty:
                 raw_df["timestamp"] = current_time
                 # Removed market_type replacement to preserve original format
@@ -436,7 +419,6 @@ class OddsArbitrageFinder:
                     axis=1,
                 )
 
-            print("Analysis complete")
             return arb_df, ev_df
 
         except Exception as e:
@@ -446,10 +428,7 @@ class OddsArbitrageFinder:
     async def generate_arbitrage_table(self) -> pd.DataFrame:
         """Generate table of arbitrage opportunities"""
         try:
-            print("Starting arbitrage table generation...")
-
             # Fetch odds for all sports
-            print("Fetching odds for all sports...")
             all_featured_odds = []
 
             # Get all sports data concurrently
@@ -458,13 +437,9 @@ class OddsArbitrageFinder:
 
             for sport, featured_odds in zip(self.sports, featured_odds_results):
                 if featured_odds:
-                    print(f"Received data for {sport}: {len(featured_odds)} games")
                     all_featured_odds.extend([(sport, game) for game in featured_odds])
-                else:
-                    print(f"No odds data received for {sport}")
 
             # Process all games concurrently
-            print(f"Processing {len(all_featured_odds)} total games...")
             game_tasks = [self.process_game(game) for _, game in all_featured_odds]
             all_results = await asyncio.gather(*game_tasks)
 
@@ -479,9 +454,6 @@ class OddsArbitrageFinder:
 
             # Create DataFrame
             if self.all_opportunities:
-                print(
-                    f"Creating DataFrame with {len(self.all_opportunities)} opportunities"
-                )
                 df = pd.DataFrame(self.all_opportunities)
                 df["timestamp"] = datetime.now(timezone.utc)
 
@@ -520,7 +492,6 @@ class OddsArbitrageFinder:
 
                 return df[columns]
             else:
-                print("No arbitrage opportunities found")
                 return pd.DataFrame()
 
         except Exception as e:
@@ -530,8 +501,6 @@ class OddsArbitrageFinder:
     async def process_game(self, game: dict) -> tuple:
         """Process a single game for arbitrage and +EV opportunities"""
         try:
-            print(f"Processing game: {game['home_team']} vs {game['away_team']}")
-
             # Initialize lists to store all odds
             all_odds = []
             tasks = []
@@ -1079,10 +1048,7 @@ async def get_all_data() -> tuple:
     if not api_key:
         raise ValueError("ODDS_API_KEY is not set")
 
-    print("Starting odds data collection...")
-
     async with OddsArbitrageFinder(api_key) as finder:
-        print("Fetching and analyzing odds data...")
         arb_df, ev_df = await finder.get_dfs()
         raw_df = finder.raw_data
 
@@ -1141,16 +1107,10 @@ async def get_all_data() -> tuple:
         arb_df = pd.DataFrame(arb_data, columns=arb_df.columns)
         ev_df = pd.DataFrame(ev_data, columns=ev_df.columns)
 
-        print(f"Found {len(raw_df)} raw odds entries")
-        print(f"Found {len(arb_df)} arbitrage/low hold opportunities")
-        print(f"Found {len(ev_df)} +EV opportunities")
-
         return raw_df, arb_df, ev_df
 
 
 async def main():
-    print("Starting odds finder application...")
-
     raw_df, arb_df, ev_df = await get_all_data()
 
     raw_df.to_csv("data/raw_odds_data.csv", index=False)
