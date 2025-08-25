@@ -9,20 +9,36 @@ from typing import List
 from datetime import datetime
 import uuid
 
-from .ev import (
-    handle_ev_player_props,
-    handle_ev_spreads,
-    handle_ev_totals,
-    handle_ev_h2h,
-)
-from .player_props import validate_player_prop
-from .utils import (
-    calculate_implied_probability,
-    calculate_kelly_percentage,
-    decimal_to_american,
-    power_devig,
-)
-from .ratelimiter import RateLimiter
+try:
+    from .ev import (
+        handle_ev_player_props,
+        handle_ev_spreads,
+        handle_ev_totals,
+        handle_ev_h2h,
+    )
+    from .player_props import validate_player_prop
+    from .utils import (
+        calculate_implied_probability,
+        calculate_kelly_percentage,
+        decimal_to_american,
+        power_devig,
+    )
+    from .ratelimiter import RateLimiter
+except ImportError:
+    from ev import (
+        handle_ev_player_props,
+        handle_ev_spreads,
+        handle_ev_totals,
+        handle_ev_h2h,
+    )
+    from player_props import validate_player_prop
+    from utils import (
+        calculate_implied_probability,
+        calculate_kelly_percentage,
+        decimal_to_american,
+        power_devig,
+    )
+    from ratelimiter import RateLimiter
 
 
 class OddsArbitrageFinder:
@@ -49,8 +65,8 @@ class OddsArbitrageFinder:
         self.all_player_props = {}
 
         # Thresholds
-        self.low_hold_threshold = 1.05
-        self.ev_threshold = 1.0
+        self.low_hold_threshold = 1.1
+        self.ev_threshold = 3.0
 
         # Player props configuration
         self.player_props = {
@@ -127,6 +143,7 @@ class OddsArbitrageFinder:
             "hardrockbet",
             "betmgm",
             "williamhill_us",
+            "caesars",
             "betrivers",
             "pinnacle",
             "fanatics",
@@ -192,6 +209,7 @@ class OddsArbitrageFinder:
             "oddsFormat": "decimal",
             "commenceTimeFrom": current_time,
             "includeLinks": "true",
+            "regions": "us",
         }
 
         data = await self.make_request(url, params)
@@ -527,6 +545,7 @@ class OddsArbitrageFinder:
                     "markets": ",".join(self.alternate_markets),
                     "oddsFormat": "decimal",
                     "includeLinks": "true",
+                    "regions": "us",
                 }
                 tasks.append(self.make_request(url, alternate_params))
 
@@ -544,6 +563,7 @@ class OddsArbitrageFinder:
                         "markets": ",".join(prop_markets),
                         "oddsFormat": "decimal",
                         "includeLinks": "true",
+                        "regions": "us",
                     }
                     tasks.append(self.make_request(url, prop_params))
 
@@ -625,6 +645,7 @@ class OddsArbitrageFinder:
             "markets": ",".join(self.additional_markets),
             "oddsFormat": "decimal",
             "includeLinks": "true",
+            "regions": "us",
         }
 
         return await self.make_request(url, params) or []
@@ -1132,9 +1153,9 @@ async def main():
 
     raw_df, arb_df, ev_df = await get_all_data()
 
-    raw_df.to_csv("src/findBets/bet/data/raw_odds_data.csv", index=False)
-    arb_df.to_csv("src/findBets/bet/data/arbitrage.csv", index=False)
-    ev_df.to_csv("src/findBets/bet/data/ev_opportunities.csv", index=False)
+    raw_df.to_csv("data/raw_odds_data.csv", index=False)
+    arb_df.to_csv("data/arbitrage.csv", index=False)
+    ev_df.to_csv("data/ev_opportunities.csv", index=False)
 
 
 if __name__ == "__main__":

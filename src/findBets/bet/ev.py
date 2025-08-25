@@ -1,6 +1,10 @@
 from typing import List, Dict, Any
-from .utils import power_devig, decimal_to_american
-from .player_props import validate_player_prop
+try:
+    from .utils import power_devig, decimal_to_american
+    from .player_props import validate_player_prop
+except ImportError:
+    from utils import power_devig, decimal_to_american
+    from player_props import validate_player_prop
 
 """
 Imported functions:
