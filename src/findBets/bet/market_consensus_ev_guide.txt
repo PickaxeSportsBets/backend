@@ -1,0 +1,263 @@
+
+Market Consensus & EV Guide (Weights, De‑Vigging, Outlier Control, Averaging, Odds, EV)
+=======================================================================================
+
+Purpose
+-------
+A practical, step‑by‑step recipe to produce a *no‑vig market consensus* from multiple sportsbooks
+(Pinnacle + US books), convert it to odds, and compute EV% against the best available price.
+
+Scope
+-----
+- Two‑way markets: moneyline, spread, total (at the SAME number).
+- Multi‑way markets (e.g., 3‑way soccer) are supported by the general formulas below.
+- Assumes you already filtered to the exact target point (e.g., -3.5, 47.5). Do not mix different
+  numbers without adjusting via your alt‑line curve / cents-per-half-point model.
+
+
+0) Notation
+-----------
+Let there be K books, each quoting prices on M outcomes for the SAME market point.
+
+- Odds can be American or Decimal. Use these conversions:
+
+  American → Decimal:
+    if A > 0:  D = 1 + (A / 100)
+    if A < 0:  D = 1 + (100 / |A|)
+
+  Decimal → Implied Probability (juiced/raw):
+    p_raw = 1 / D
+
+- For two‑way markets, M = 2 (e.g., side A and side B). For 3‑way, M = 3, etc.
+
+
+1) De‑Vigging per Book (Margin Normalization)
+---------------------------------------------
+Compute each book’s *raw* implied probability for each outcome m:
+  p_raw(i, m) = 1 / D(i, m)
+
+Let S_i = sum over m of p_raw(i, m). (This is 1 + hold_i for book i.)
+
+Normalize to remove the juice (no‑vig probabilities):
+  p_fair(i, m) = p_raw(i, m) / S_i
+
+Now for each book i, Σ_m p_fair(i, m) = 1.0 (up to rounding).
+
+Book Hold (for reference):
+  hold_i = S_i - 1
+
+
+2) Base Weights Across Books
+----------------------------
+If you have no limits/closing‑line model yet, use a pragmatic default that reflects “market-makers
+vs. retail” and penalizes large margins:
+
+  w_base(i) ∝ a * 1{market_maker_i} + b * (1 / hold_i_clipped)
+
+Where:
+- 1{market_maker_i} = 1 for market-makers (e.g., Pinnacle), else 0
+- a, b are mixing constants (simple default a=0.6, b=0.4)
+- hold_i_clipped = max(hold_i, h_min) with a small floor like h_min = 0.01 to avoid explosions
+
+If you want fixed, plug‑and‑play weights (when books are on the same line and holds are typical):
+  Early market:   Pin 0.75, FD 0.10, DK 0.10, Caesars 0.05
+  Day‑of (higher limits): Pin 0.55, FD 0.15, DK 0.15, Caesars 0.10, MGM 0.05
+
+You can blend both ideas: compute inverse‑hold weights, then scale Pinnacle by a time factor
+f_time in [1.0, 1.5] early and taper to 1.0 close to start.
+
+
+3) Robust Outlier Downweight (Smooth, No Hard Cuts)
+---------------------------------------------------
+Goal: downweight stale/rogue prices without discarding them.
+
+Work outcome‑by‑outcome. For a given outcome m, collect each book’s no‑vig probability p_i = p_fair(i, m).
+Transform to logits to make distance meaningful:
+  z_i = logit(p_i) = ln(p_i / (1 - p_i))
+
+Let m_z = median(z_i), and MAD_z = median(|z_i - m_z|). Define a robust scale:
+  sigma = 1.4826 * MAD_z
+  sigma = max(sigma, sigma_min) with sigma_min ~ 0.05 (prevents over‑penalizing when books agree)
+
+Outlier confidence factor (Gaussian‑like):
+  c_i = exp( - (z_i - m_z)^2 / (2 * sigma^2) )
+
+Final weight per book for outcome m:
+  w_i(m) = w_base(i) * c_i
+
+(You may cap c_i to [c_min, 1] with c_min ~ 0.05 if desired.)
+
+
+4) Weighted Consensus (No‑Vig) Probability
+------------------------------------------
+Normalize weights for the outcome m and compute the consensus probability:
+
+  W = Σ_i w_i(m)
+  p_consensus(m) = (Σ_i w_i(m) * p_fair(i, m)) / W
+
+Repeat for each outcome m. The p_consensus values across outcomes will sum to ~1.0.
+
+
+5) Convert Consensus Probability to Odds
+----------------------------------------
+Decimal:
+  D* (m) = 1 / p_consensus(m)
+
+American:
+  if p >= 0.5:   A = - 100 * (p / (1 - p))      # Favorite → negative American
+  if p < 0.5:    A =   100 * ((1 - p) / p)      # Underdog → positive American
+
+(Optionally round to your chosen display precision after all calculations.)
+
+
+6) Choose the Best Available Odds (to Bet) for EV
+-------------------------------------------------
+For each outcome m at the SAME market point, scan your available books and pick the **best shopper’s
+price**:
+- For favorites (negative American), choose the **least negative** (largest decimal).
+- For underdogs (positive American), choose the **largest positive** (largest decimal).
+Call the chosen offered decimal price D_offer(m).
+
+Expected Value (per $1 staked):
+  EV(m) = p_consensus(m) * (D_offer(m) - 1) - (1 - p_consensus(m))
+
+EV%:
+  EV_pct(m) = 100 * EV(m)
+
+Equivalent forms:
+- Using fair decimal D_fair = 1 / p_consensus:
+    Edge = (D_offer / D_fair) - 1
+    EV_pct ≈ 100 * Edge  (identical to EV per $1 stake when using decimal odds)
+
+Note: If you compute EV for both sides of a two‑way market using the SAME consensus, exactly one
+side should be ≤ 0% if the offered prices are identical and the consensus is calibrated.
+Disparities appear when a book is off-market.
+
+
+7) Implementation Order (Do This Every Time)
+--------------------------------------------
+For each market (spread/total at SAME number, or moneyline):
+  1) Convert each book’s prices → decimal → p_raw
+  2) Compute S_i and p_fair(i, m) = p_raw / S_i  (remove vig per book)
+  3) Compute hold_i = S_i - 1  (for weighting)
+  4) Compute w_base(i)  (market‑maker bump + inverse hold, with clipping)
+  5) For each outcome m:
+       a) Build array {p_fair(i, m)} and logits z_i
+       b) m_z, MAD_z → sigma (with floor)
+       c) c_i = exp( - (z_i - m_z)^2 / (2*sigma^2) )
+       d) w_i(m) = w_base(i) * c_i
+       e) p_consensus(m) = Σ_i w_i(m) * p_fair(i, m) / Σ_i w_i(m)
+  6) Convert p_consensus(m) → D*(m) and American A*(m)
+  7) Find D_offer(m) (best line across books at the SAME number)
+  8) EV_pct(m) = 100 * [ p_consensus(m)*(D_offer(m)-1) - (1 - p_consensus(m)) ]
+
+Optional safeguards:
+- Ignore books quoting a DIFFERENT point number unless you adjust them.
+- Drop any book with missing sides or obviously stale timestamps.
+- Cap weights to avoid a single book dominating (e.g., w_i ≤ 0.8 * Σ w).
+
+
+8) Tiny Worked Example (Two‑Way, Moneyline)
+-------------------------------------------
+Suppose three books quote Team A vs Team B (decimal), raw (juiced) prices:
+
+  Book  D_A    D_B
+  ----  -----  -----
+  Pin   1.90   1.95
+  FD    1.87   1.95
+  DK    1.91   1.91
+
+Step 1: p_raw = 1/D
+  Pin: p_rawA=0.5263, p_rawB=0.5128, S_pin=1.0391, hold≈3.91%
+  FD:  p_rawA=0.5348, p_rawB=0.5128, S_fd =1.0476, hold≈4.76%
+  DK:  p_rawA=0.5236, p_rawB=0.5236, S_dk =1.0472, hold≈4.72%
+
+Step 2: no‑vig p_fair = p_raw / S
+  Pin: A=0.5060, B=0.4939
+  FD:  A=0.5106, B=0.4894
+  DK:  A=0.5000, B=0.5000
+
+Step 3: Base weights (example): a=0.6, b=0.4, Pin is market‑maker
+  w_base(pin)=0.6 + 0.4*(1/0.0391)=0.6 + 10.23≈10.83
+  w_base(fd) =0    + 0.4*(1/0.0476)=8.40
+  w_base(dk) =0    + 0.4*(1/0.0472)=8.47
+  (You’d typically rescale these later; only ratios matter.)
+
+Step 4: Outlier control for Team A
+  p_fairA: [0.5060, 0.5106, 0.5000] → logits z ≈ [0.024, 0.042, 0.000]
+  m_z=0.024 (median), MAD≈|0.024-0.024|,|0.042-0.024|,|0.000-0.024| → median=0.024
+  sigma≈1.4826*0.024≈0.0356; apply floor sigma_min=0.05 → sigma=0.05
+  c_i=exp(- (z-m_z)^2 / (2*sigma^2)) → close to 1 for all three
+
+  Effective weights for A: w_i(A)=w_base(i)*c_i  (almost unchanged)
+  p_consensus(A)=Σ w_i(A)*p_fairA / Σ w_i(A) ≈ 0.5055 (illustrative)
+  Then p_consensus(B)=1 - 0.5055 = 0.4945
+
+Step 5: Odds
+  D*(A)=1/0.5055≈1.977; D*(B)=1/0.4945≈2.022
+  American:
+    A is slight favorite → A≈- (0.5055/0.4945)*100 ≈ -102.2
+    B underdog → + (0.4945/0.5055)*100 ≈ +97.8
+
+Step 6: Shopper’s best offers at same point (say we find: A 2.02, B 2.02)
+  EV(A) = 0.5055*(2.02-1) - 0.4945 = 0.5106 - 0.4945 ≈ +0.0161 → +1.61%
+  EV(B) = 0.4945*(2.02-1) - 0.5055 = 0.4994 - 0.5055 ≈ -0.61%
+
+Only Team A is +EV at those offers.
+
+
+9) Implementation Tips
+----------------------
+- Do all math in float; round only for display.
+- Reuse the same outlier c_i for both sides of a two‑way market *per outcome*, because p_i differs by side.
+- Cache book holds by market to avoid recomputation.
+- Keep a “staleness” timestamp; set c_i= c_i * freshness_factor (e.g., exponential decay after N minutes).
+
+
+Appendix: Quick Functions (Pseudocode/Pythonic)
+-----------------------------------------------
+american_to_decimal(A):
+    if A > 0: return 1 + A/100
+    else:     return 1 + 100/abs(A)
+
+devig_probabilities(decimal_prices):
+    p_raw = [1/d for d in decimal_prices]
+    S = sum(p_raw)
+    return [pr / S for pr in p_raw], (S - 1)  # no‑vig probs, hold
+
+consensus_probability(p_fair_list, holds, is_market_maker_flags, a=0.6, b=0.4,
+                      sigma_min=0.05, c_min=0.05):
+    # p_fair_list: list over books of no‑vig probs for one outcome
+    # holds: list over books of hold_i
+    # is_market_maker_flags: list over books (True for Pin, else False)
+
+    import math
+    # base weights
+    w_base = []
+    for i in range(len(p_fair_list)):
+        hold = max(holds[i], 0.01)
+        w_base.append(a*(1 if is_market_maker_flags[i] else 0) + b*(1/hold))
+
+    # logits
+    logits = [math.log(p/(1-p)) for p in p_fair_list]
+    med = sorted(logits)[len(logits)//2]
+    abs_dev = [abs(z - med) for z in logits]
+    MAD = sorted(abs_dev)[len(abs_dev)//2]
+    sigma = max(1.4826 * MAD, sigma_min)
+
+    # confidence / outlier factor
+    c = [math.exp(-((z-med)**2) / (2*sigma**2)) for z in logits]
+    c = [max(ci, c_min) for ci in c]
+
+    # final weights
+    w = [wb * ci for wb, ci in zip(w_base, c)]
+    W = sum(w)
+    return sum(w[i]*p_fair_list[i] for i in range(len(w))) / W
+
+prob_to_american(p):
+    if p >= 0.5: return -100 * (p/(1-p))
+    else:        return  100 * ((1-p)/p)
+
+ev_percent(p_fair, D_offer):
+    return 100 * (p_fair*(D_offer-1) - (1 - p_fair))
+

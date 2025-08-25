@@ -1,10 +1,15 @@
 from typing import List, Dict, Any
 try:
-    from .utils import power_devig, decimal_to_american
+    from .utils import power_devig, decimal_to_american, market_consensus_fair_odds, calculate_ev_percentage
     from .player_props import validate_player_prop
 except ImportError:
-    from utils import power_devig, decimal_to_american
+    from utils import power_devig, decimal_to_american, market_consensus_fair_odds, calculate_ev_percentage
     from player_props import validate_player_prop
+
+# Configuration: Choose between "pinnacle_only" or "market_consensus" approach
+# Set this to "market_consensus" to use the new weighted average approach
+# Set this to "pinnacle_only" to use the original Pinnacle-only approach
+FAIR_ODDS_APPROACH = "market_consensus"  # Options: "pinnacle_only", "market_consensus"
 
 """
 Imported functions:
@@ -23,6 +28,66 @@ Imported functions:
     decimal_to_american(decimal_odds): Converts decimal odds (e.g., 2.50) to American format (e.g., +150).
         Used to standardize odds format when comparing across different bookmakers.
 """
+
+
+def calculate_fair_odds(pinnacle_odds_list: List[dict], all_bookmakers: List[dict] = None) -> List[int]:
+    """
+    Calculate fair odds using the configured approach.
+    
+    Args:
+        pinnacle_odds_list: List of Pinnacle odds dictionaries
+        all_bookmakers: List of all bookmaker data (required for market consensus approach)
+    
+    Returns:
+        List of fair American odds
+    """
+    if FAIR_ODDS_APPROACH == "pinnacle_only":
+        # Original approach: Use only Pinnacle odds
+        american_odds = [odds['american'] for odds in pinnacle_odds_list]
+        return power_devig(american_odds)
+    
+    elif FAIR_ODDS_APPROACH == "market_consensus":
+        # New approach: Use market consensus with weighted averaging
+        if not all_bookmakers:
+            print("Warning: Market consensus approach requires all_bookmakers data. Falling back to Pinnacle-only.")
+            american_odds = [odds['american'] for odds in pinnacle_odds_list]
+            return power_devig(american_odds)
+        
+        # Convert data structure for market consensus function
+        bookmakers_data = []
+        for bookmaker in all_bookmakers:
+            if 'bookmaker' in bookmaker and 'outcomes' in bookmaker:
+                bookmakers_data.append(bookmaker)
+            else:
+                # Handle different data structure if needed
+                print(f"Warning: Unexpected bookmaker data structure: {bookmaker}")
+                continue
+        
+        if not bookmakers_data:
+            print("Warning: No valid bookmaker data found. Falling back to Pinnacle-only.")
+            american_odds = [odds['american'] for odds in pinnacle_odds_list]
+            return power_devig(american_odds)
+        
+        # Calculate market consensus fair odds
+        consensus_fair_odds = market_consensus_fair_odds(bookmakers_data)
+        
+        # Convert to list format expected by existing code
+        fair_odds_list = []
+        for odds in pinnacle_odds_list:
+            team = odds['team']
+            if team in consensus_fair_odds:
+                fair_odds_list.append(consensus_fair_odds[team])
+            else:
+                # Fallback if team not found in consensus
+                print(f"Warning: Team {team} not found in consensus. Using Pinnacle odds.")
+                fair_odds_list.append(odds['american'])
+        
+        return fair_odds_list
+    
+    else:
+        print(f"Warning: Unknown FAIR_ODDS_APPROACH '{FAIR_ODDS_APPROACH}'. Using Pinnacle-only.")
+        american_odds = [odds['american'] for odds in pinnacle_odds_list]
+        return power_devig(american_odds)
 
 
 def _check_ev_opportunities_spreads(
@@ -70,12 +135,8 @@ def _check_ev_opportunities_spreads(
         )
 
         if is_better:
-            decimal_odds = (american_odds / 100) + \
-                1 if american_odds > 0 else (100 / abs(american_odds)) + 1
-            fair_prob = 100 / \
-                (fair_odd + 100) if fair_odd > 0 else abs(fair_odd) / \
-                (abs(fair_odd) + 100)
-            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+            # Use the new EV calculation function
+            ev_percentage = calculate_ev_percentage(american_odds, fair_odd)
 
             if ev_percentage >= ev_threshold:
                 opportunity = {
@@ -142,11 +203,11 @@ def handle_ev_spreads(
         print(
             f"\nProcessing spread pair: {favorite_odds['team']} {favorite_odds['point']} @ {favorite_odds['american']} vs {underdog_odds['team']} {underdog_odds['point']} @ {underdog_odds['american']}")
 
-        # Devig odds
-        fair_odds = power_devig(
-            [favorite_odds['american'], underdog_odds['american']])
+        # Calculate fair odds using configured approach
+        pinnacle_odds_list = [favorite_odds, underdog_odds]
+        fair_odds = calculate_fair_odds(pinnacle_odds_list, all_bookmakers)
         print(
-            f"Devigged fair odds: {fair_odds[0]} (favorite), {fair_odds[1]} (underdog)")
+            f"Fair odds ({FAIR_ODDS_APPROACH}): {fair_odds[0]} (favorite), {fair_odds[1]} (underdog)")
 
         # Initialize market data
         team_a_market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -389,9 +450,8 @@ def handle_ev_totals(
         if len(pin_odds_list) != 2:  # Need both sides for devig
             continue
 
-        # Devig Pinnacle odds
-        pin_american = [odds["american"] for odds in pin_odds_list]
-        fair_odds = power_devig(pin_american)
+        # Calculate fair odds using configured approach
+        fair_odds = calculate_fair_odds(pin_odds_list, all_bookmakers)
 
         # Initialize market_data with proper structure
         market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -521,9 +581,8 @@ def handle_ev_player_props(
         if len(pin_odds_list) != 2:  # Need both sides for devig
             continue
 
-        # Devig Pinnacle odds
-        pin_american = [odds["american"] for odds in pin_odds_list]
-        fair_odds = power_devig(pin_american)
+        # Calculate fair odds using configured approach
+        fair_odds = calculate_fair_odds(pin_odds_list, all_bookmakers)
 
         # Initialize market_data with proper structure
         market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -663,9 +722,8 @@ def handle_ev_h2h(
     # Combine the two lists
     pin_odds_list = [pin_odds_home[0], pin_odds_away[0]]
 
-    # Devig Pinnacle odds
-    pin_american = [odds["american"] for odds in pin_odds_list]
-    fair_odds = power_devig(pin_american)
+    # Calculate fair odds using configured approach
+    fair_odds = calculate_fair_odds(pin_odds_list, all_bookmakers)
 
     # Initialize market_data with proper structure
     market_data = {"over": {"odds": {}}, "under": {"odds": {}}}
@@ -806,18 +864,8 @@ def _check_ev_opportunities(
         )
 
         if is_better:
-            # Calculate EV
-            if american_odds > 0:
-                decimal_odds = (american_odds / 100) + 1
-            else:
-                decimal_odds = (100 / abs(american_odds)) + 1
-
-            if fair_odd > 0:
-                fair_prob = 100 / (fair_odd + 100)
-            else:
-                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
-
-            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+            # Use the new EV calculation function
+            ev_percentage = calculate_ev_percentage(american_odds, fair_odd)
 
             if ev_percentage >= ev_threshold:
                 opportunity = {
@@ -856,18 +904,8 @@ def _check_ev_opportunities(
         )
 
         if is_better:
-            # Calculate EV
-            if american_odds > 0:
-                decimal_odds = (american_odds / 100) + 1
-            else:
-                decimal_odds = (100 / abs(american_odds)) + 1
-
-            if fair_odd > 0:
-                fair_prob = 100 / (fair_odd + 100)
-            else:
-                fair_prob = abs(fair_odd) / (abs(fair_odd) + 100)
-
-            ev_percentage = (decimal_odds * fair_prob - 1) * 100
+            # Use the new EV calculation function
+            ev_percentage = calculate_ev_percentage(american_odds, fair_odd)
 
             if ev_percentage >= ev_threshold:
                 opportunity = {
