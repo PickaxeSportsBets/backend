@@ -150,6 +150,9 @@ class OddsArbitrageFinder:
             "fliff",
         ]
 
+        # Cache of allowed bookmaker keys (lowercased) for fast membership checks
+        self.allowed_bookmaker_keys = set(b.lower() for b in self.bookmakers)
+
         # Store initial data
         self.raw_data = pd.DataFrame()
 
@@ -203,7 +206,7 @@ class OddsArbitrageFinder:
             "oddsFormat": "decimal",
             "commenceTimeFrom": current_time,
             "includeLinks": "true",
-            "regions": "us",
+            "regions": "us,us2",
         }
 
         data = await self.make_request(url, params)
@@ -249,9 +252,8 @@ class OddsArbitrageFinder:
                                         "team2": {"odds": {}},
                                     }
                                     for bm in event.get("bookmakers", []):
-                                        if bm["title"].lower() not in [
-                                            b.lower() for b in self.bookmakers
-                                        ]:
+                                        bm_key = bm.get("key", "").lower()
+                                        if bm_key not in self.allowed_bookmaker_keys:
                                             continue
                                         for mkt in bm.get("markets", []):
                                             if mkt["key"] == market["key"]:
@@ -508,7 +510,7 @@ class OddsArbitrageFinder:
                     "markets": ",".join(self.alternate_markets),
                     "oddsFormat": "decimal",
                     "includeLinks": "true",
-                    "regions": "us",
+                    "regions": "us,us2",
                 }
                 tasks.append(self.make_request(url, alternate_params))
 
@@ -526,7 +528,7 @@ class OddsArbitrageFinder:
                         "markets": ",".join(prop_markets),
                         "oddsFormat": "decimal",
                         "includeLinks": "true",
-                        "regions": "us",
+                        "regions": "us,us2",
                     }
                     tasks.append(self.make_request(url, prop_params))
 
@@ -608,7 +610,7 @@ class OddsArbitrageFinder:
             "markets": ",".join(self.additional_markets),
             "oddsFormat": "decimal",
             "includeLinks": "true",
-            "regions": "us",
+            "regions": "us,us2",
         }
 
         return await self.make_request(url, params) or []
@@ -632,7 +634,8 @@ class OddsArbitrageFinder:
                 if not isinstance(bm, dict) or "title" not in bm:
                     continue
 
-                if bm["title"].lower() not in [b.lower() for b in self.bookmakers]:
+                bm_key = bm.get("key", "").lower()
+                if bm_key not in self.allowed_bookmaker_keys:
                     continue
 
                 for market in bm.get("markets", []):
@@ -673,7 +676,7 @@ class OddsArbitrageFinder:
                 for bm in all_bookmakers
                 if isinstance(bm, dict)
                 and "title" in bm
-                and bm["title"].lower() in [b.lower() for b in self.bookmakers]
+                and bm.get("key", "").lower() in self.allowed_bookmaker_keys
             ]
 
             # Process all market types
@@ -764,11 +767,10 @@ class OddsArbitrageFinder:
                                     if not isinstance(bm, dict) or "title" not in bm:
                                         continue
 
-                                    bm_title = bm["title"].lower()
-                                    if bm_title not in [
-                                        b.lower() for b in self.bookmakers
-                                    ]:
+                                    bm_key = bm.get("key", "").lower()
+                                    if bm_key not in self.allowed_bookmaker_keys:
                                         continue
+                                    bm_title = bm["title"].lower()
 
                                     for market in bm.get("markets", []):
                                         if market["key"].lower() != market_type:
@@ -958,7 +960,7 @@ class OddsArbitrageFinder:
     
                     continue
 
-                if bm["title"].lower() == "pinnacle":
+                if bm.get("key", "").lower() == "pinnacle":
                     for market in bm.get("markets", []):
                         # Convert to lowercase
                         market_key = market["key"].lower()
